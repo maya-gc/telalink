@@ -1,5 +1,8 @@
 // Confere os resultados do laboratorio contra o esperado e gera o relatorio.
 import { readFileSync, existsSync, appendFileSync, writeFileSync } from 'node:fs';
+
+const tailOf = (f, n = 20) => (existsSync(f) ? readFileSync(f, 'utf8').trim().split('\n').slice(-n).join('\n') : '(sem log)');
+const annot = (s) => s.replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A');
 import { join } from 'node:path';
 
 const OUT = process.env.LAB_OUT || 'lab-results';
@@ -41,5 +44,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   console.log(md);
   writeFileSync(join(OUT, 'resumo.md'), md);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+  for (const r of rows.filter((x) => !x.pass)) {
+    const why = r.ok ? `chegou por "${r.transport}", esperado: ${r.aceita.join(' ou ')}` : (r.error || 'sem resultado');
+    console.log(`::error title=Laboratorio - ${r.desc.replace(/%/g, "%25").replace(/:/g, "%3A").replace(/,/g, "%2C")}::${annot(`${why}\n--- log do espectador ---\n${tailOf(join(OUT, `${r.name}.log`))}\n--- log do servidor ---\n${tailOf(join(OUT, 'servidor.log'), 10)}`)}`);
+  }
   process.exit(rows.every((r) => r.pass) ? 0 : 1);
 }

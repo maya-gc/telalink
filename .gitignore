@@ -5,3 +5,4 @@ settings.json
 *.tmp
 coverage/
 lab-results/
+relatorio-testes.xml

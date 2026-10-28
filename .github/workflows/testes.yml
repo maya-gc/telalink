@@ -32,8 +32,8 @@ jobs:
       TUNNEL: "0"
       NO_OPEN: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
 
@@ -44,7 +44,19 @@ jobs:
         run: npm run test:e2e:setup
 
       - name: Testes (unidade, integracao, seguranca, E2E com navegador real)
-        run: npm test
+        run: npm run test:ci
+
+      - name: Publicar falhas como anotacoes
+        if: failure()
+        run: node scripts/ci-report.js relatorio-testes.xml
+
+      - name: Guardar relatorio dos testes
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: relatorio-testes-${{ matrix.os }}-node${{ matrix.node }}
+          path: relatorio-testes.xml
+          retention-days: 14
 
       - name: Iniciar.bat sobe o servidor de verdade (Windows)
         if: runner.os == 'Windows'
@@ -67,8 +79,8 @@ jobs:
       TUNNEL: "0"
       NO_OPEN: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: npm run test:e2e:setup
