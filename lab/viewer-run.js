@@ -12,20 +12,16 @@ const STATE = process.env.LAB_STATE || '/tmp/telalink-lab';
 mkdirSync(OUT, { recursive: true });
 
 const { link, pin } = JSON.parse(readFileSync(join(STATE, 'sessao.json'), 'utf8'));
-const origin = new URL(link).origin;
-const args = [
-  '--autoplay-policy=no-user-gesture-required',
-  // No mundo real o link e https (tunel); no laboratorio e http, entao
-  // marcamos a origem como segura para liberar Web Crypto e WebCodecs.
-  `--unsafely-treat-insecure-origin-as-secure=${origin}`,
-];
+const args = ['--autoplay-policy=no-user-gesture-required'];
 if (flags.includes('--sem-webrtc')) args.push('--force-webrtc-ip-handling-policy=disable_non_proxied_udp');
 
 const result = { scenario, ok: false, transport: null, firstFrameMs: null, error: null };
 const browser = await chromium.launch({ args });
 try {
-  const page = await browser.newPage();
-  page.on('console', (m) => { if (m.type() === 'error') console.log(`[${scenario} console]`, m.text()); });
+  // O laboratorio usa um certificado de teste (no mundo real: o da Cloudflare).
+  const page = await (await browser.newContext({ ignoreHTTPSErrors: true })).newPage();
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`[${scenario} console]`, m.text()); });
+  page.on('pageerror', (e) => console.log(`[${scenario} erro na pagina]`, e.message));
   const t0 = Date.now();
   await page.goto(link, { timeout: 20_000 });
   await page.fill('#pin', pin);
@@ -43,6 +39,13 @@ try {
   await page.screenshot({ path: join(OUT, `${scenario}.png`) });
 } catch (err) {
   result.error = err.message.split('\n')[0];
+  // Estado da pagina no momento da falha, para diagnostico.
+  try {
+    const ctx = browser.contexts()[0];
+    const pg = ctx?.pages()[0];
+    if (pg) result.estado = await pg.evaluate(() => ({ seguro: isSecureContext, transporte: window.__telalink?.transport, stats: window.__telalink?.stats, mensagem: document.getElementById('gateMsg')?.textContent }));
+    result.error += ' | estado: ' + JSON.stringify(result.estado);
+  } catch {}
 } finally {
   await browser.close();
   writeFileSync(join(OUT, `${scenario}.json`), JSON.stringify(result, null, 2));

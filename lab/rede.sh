@@ -53,8 +53,8 @@ up() {
   for s in casa casa2 vpn; do
     ns "$s-r" iptables -t nat -A POSTROUTING -o wan -j MASQUERADE
   done
-  # O transmissor publica o TelaLink na porta 80 (papel do tunel no mundo real).
-  ns casa-r iptables -t nat -A PREROUTING -i wan -p tcp --dport 80 -j DNAT --to-destination 192.168.10.2:8080
+  # A porta 443 publica o proxy https do transmissor (papel da Cloudflare no mundo real).
+  ns casa-r iptables -t nat -A PREROUTING -i wan -p tcp --dport 443 -j DNAT --to-destination 192.168.10.2:8443
 
   # --- cgnat: NAT simetrico (porta de saida muda a cada destino), como em muitas operadoras 4G
   ns cgnat-r iptables -t nat -A POSTROUTING -o wan -j MASQUERADE --random-fully

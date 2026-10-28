@@ -19,6 +19,8 @@ const BASE_ARGS = [
   '--use-fake-device-for-media-stream',
   '--auto-select-desktop-capture-source=Entire screen',
   '--autoplay-policy=no-user-gesture-required',
+  // Teste na mesma maquina: IPs locais visiveis (no mac do CI o mDNS nao resolve).
+  '--disable-features=WebRtcHideLocalIpsWithMdns',
 ];
 // Simula VPN/extensao que desliga o WebRTC "de verdade": sem caminho UDP.
 const NO_WEBRTC_ARGS = [...BASE_ARGS, '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'];

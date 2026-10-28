@@ -36,13 +36,24 @@ cat "$LAB_OUT/rede.log"
 echo "== STUN no 'provedor' (203.0.113.1)"
 ip netns exec inet node lab/stun-server.js > "$LAB_OUT/stun.log" 2>&1 & PIDS+=($!)
 
-echo "== TelaLink no PC da casa"
-ip netns exec casa env HOST=0.0.0.0 PORT=8080 TUNNEL=0 NO_OPEN=1 \
-  PUBLIC_URL=http://203.0.113.10 TELALINK_DATA_DIR="$LAB_STATE/dados" \
+echo "== Certificado de teste para o https do laboratorio"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=203.0.113.10" \
+  -addext "subjectAltName=IP:203.0.113.10" -keyout "$LAB_STATE/lab.key" -out "$LAB_STATE/lab.crt" >/dev/null 2>&1 \
+  || fail "nao foi possivel gerar o certificado de teste"
+
+echo "== TelaLink no PC da casa (escutando so em 127.0.0.1, como no PC real)"
+ip netns exec casa env PORT=8080 TUNNEL=0 NO_OPEN=1 \
+  PUBLIC_URL=https://203.0.113.10 TELALINK_DATA_DIR="$LAB_STATE/dados" \
   ICE_SERVERS_JSON='[{"urls":"stun:203.0.113.1:3478"}]' \
   node src/server.js > "$LAB_OUT/servidor.log" 2>&1 & PIDS+=($!)
 ok=0; for i in $(seq 1 40); do ip netns exec casa curl -fsS http://localhost:8080/health >/dev/null 2>&1 && ok=1 && break; sleep 0.25; done
 [ "$ok" = 1 ] || fail "o servidor TelaLink nao subiu na rede casa" "$LAB_OUT/servidor.log"
+
+echo "== Proxy https na casa (papel da Cloudflare: https publico -> 127.0.0.1:8080)"
+ip netns exec casa node lab/tls-proxy.js "$LAB_STATE/lab.key" "$LAB_STATE/lab.crt" 8443 8080 > "$LAB_OUT/proxy.log" 2>&1 & PIDS+=($!)
+ok=0; for i in $(seq 1 40); do ip netns exec casa2 curl -kfsS https://203.0.113.10/health >/dev/null 2>&1 && ok=1 && break; sleep 0.25; done
+[ "$ok" = 1 ] || fail "a casa2 nao alcanca o link publico https://203.0.113.10" "$LAB_OUT/proxy.log"
+echo "   link publico https://203.0.113.10 acessivel de outra rede"
 
 echo "== Transmissor (casa)"
 ip netns exec casa node lab/host-run.js > "$LAB_OUT/host.log" 2>&1 & PIDS+=($!)
@@ -50,7 +61,7 @@ for i in $(seq 1 120); do [ -f "$LAB_STATE/sessao.json" ] && break; sleep 0.5; d
 [ -f "$LAB_STATE/sessao.json" ] || fail "o transmissor nao iniciou" "$LAB_OUT/host.log"
 
 echo "== Conferindo isolamento: a casa2 NAO alcanca o PC da casa direto (so pelo roteador)"
-if ip netns exec casa2 curl -fsS --max-time 3 http://192.168.10.2:8080/health >/dev/null 2>&1; then
+if ip netns exec casa2 curl -kfsS --max-time 3 https://192.168.10.2:8443/health >/dev/null 2>&1; then
   fail "as redes NAO estao isoladas (casa2 alcancou o PC da casa direto)"
 fi
 echo "   isolamento OK"
