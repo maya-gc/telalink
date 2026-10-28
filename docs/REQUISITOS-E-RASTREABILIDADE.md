@@ -14,10 +14,11 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-04 | Troca automática direta → TURN → retransmissão | `e2e.test.js` › rede que bloqueia WebRTC; laboratório (empresa, VPN, CGNAT) |
 | RF-05 | Modo Máxima segurança (sempre retransmissão cifrada) | `e2e.test.js` › modo máxima segurança |
 | RF-06 | Vários espectadores simultâneos | `server.test.js` › 30 viewers simultâneos |
-| RF-07 | Configuração de TURN (Cloudflare, coturn, fixo) pelo painel | `turn.test.js`, `acesso.test.js` › configurações |
+| RF-07 | Cadastro de TURN (Cloudflare, coturn, usuário/senha) pela tela "Conexão e segurança", com teste real e motivo da falha | `config-ui.test.js` (navegador real + servidor TURN de teste com autenticação), `turn.test.js`, `acesso.test.js` |
 | RF-08 | Trava de consumo mensal de TURN | `settings.test.js`, `turn.test.js` › trava |
 | RF-09 | Aviso de tela preta com orientação | `media.test.js` › tela preta |
 | RF-10 | Painel mostra o caminho usado por cada espectador | `e2e.test.js` (host vê "retransmissao") |
+| RF-11 | Painel mostra resumo de conexão (modo, TURN, consumo) com atalho para configurar | `config-ui.test.js` |
 
 ## Segurança
 

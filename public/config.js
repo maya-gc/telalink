@@ -51,41 +51,63 @@ function collect() {
   };
 }
 
-async function save() {
+async function save({ quiet = false } = {}) {
   $('btnSave').disabled = true;
   try {
     const r = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(collect()) });
     const body = await r.json();
-    if (!r.ok) return show($('msg'), 'err', body.error || 'Não foi possível salvar.');
+    if (!r.ok) { show($('msg'), 'err', body.error || 'Não foi possível salvar.'); return false; }
     fill(body);
-    show($('msg'), 'ok', 'Salvo. Vale para as próximas pessoas que entrarem.');
+    if (!quiet) show($('msg'), 'ok', 'Salvo. Vale para as próximas pessoas que entrarem. Use “Testar conexão” para conferir.');
+    return true;
   } finally { $('btnSave').disabled = false; }
 }
 
-// Testa de verdade: pede credenciais e tenta obter um candidato "relay" do TURN.
+// Tenta obter um caminho "relay" do TURN com as credenciais geradas pelo
+// servidor. Resolve com { ok, motivo } assim que houver resposta.
+export function probeTurn(servers, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const pc = new RTCPeerConnection({ iceServers: servers, iceTransportPolicy: 'relay' });
+    const done = (r) => { clearTimeout(t); try { pc.close(); } catch {} resolve(r); };
+    const t = setTimeout(() => done({ ok: false, motivo: 'timeout' }), timeoutMs);
+    const errors = new Set();
+    pc.onicecandidate = (e) => {
+      if (e.candidate && / typ relay /.test(e.candidate.candidate)) done({ ok: true });
+      if (!e.candidate) done({ ok: false, motivo: errors.has(401) ? 'credencial' : errors.size ? 'inacessivel' : 'timeout' });
+    };
+    pc.onicecandidateerror = (e) => {
+      errors.add(e.errorCode);
+      if (e.errorCode === 401) done({ ok: false, motivo: 'credencial' });
+    };
+    pc.createDataChannel('teste');
+    pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => done({ ok: false, motivo: 'navegador' }));
+  });
+}
+
+const MOTIVOS = {
+  credencial: 'O servidor TURN recusou o usuário/senha (erro 401). Confira as credenciais ou o segredo.',
+  inacessivel: 'Não foi possível alcançar o servidor TURN. Confira os endereços e se ele está no ar.',
+  timeout: 'O servidor TURN não respondeu em 8 s. Confira endereços, firewall e se o servidor está no ar.',
+  navegador: 'O navegador não conseguiu iniciar o teste.',
+};
+
+// "Testar conexao" salva o que estiver na tela e testa de verdade.
 async function test() {
   $('btnTest').disabled = true;
-  show($('msg'), 'ok', 'Testando...');
   try {
+    if (!(await save({ quiet: true }))) return;
+    show($('msg'), 'ok', 'Testando...');
     const r = await (await fetch('/api/settings/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
     if (!r.ok) return show($('msg'), 'err', 'Falhou: ' + r.message);
     if (!r.servers.length) return show($('msg'), 'ok', r.message);
-    const pc = new RTCPeerConnection({ iceServers: r.servers, iceTransportPolicy: 'relay' });
-    pc.createDataChannel('teste');
-    const found = new Promise((resolve) => {
-      pc.onicecandidate = (e) => { if (e.candidate && / typ relay /.test(e.candidate.candidate)) resolve(true); };
-      setTimeout(() => resolve(false), 8000);
-    });
-    await pc.setLocalDescription(await pc.createOffer());
-    const ok = await found;
-    pc.close();
-    show($('msg'), ok ? 'ok' : 'err', ok ? '✅ O servidor TURN respondeu e liberou um caminho de retransmissão.' : 'O servidor TURN não respondeu em 8 s. Confira endereços, credenciais e se o servidor está no ar.');
+    const res = await probeTurn(r.servers);
+    show($('msg'), res.ok ? 'ok' : 'err', res.ok ? '✅ O servidor TURN respondeu e liberou um caminho de retransmissão.' : MOTIVOS[res.motivo]);
   } catch (err) {
     show($('msg'), 'err', 'Falhou: ' + err.message);
   } finally { $('btnTest').disabled = false; }
 }
 
 document.querySelectorAll('input[name=provider]').forEach((r) => r.addEventListener('change', renderFields));
-$('btnSave').onclick = save;
+$('btnSave').onclick = () => save();
 $('btnTest').onclick = test;
 load();

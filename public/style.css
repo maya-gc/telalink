@@ -70,3 +70,6 @@ video.preview { width: 100%; border-radius: 10px; background: #000; margin-top: 
 table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.cmp th, table.cmp td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
 table.cmp th { color: var(--muted); font-weight: 600; }
+
+/* Campos do metodo TURN escolhido */
+#f-cloudflare, #f-coturn, #f-static { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line); }

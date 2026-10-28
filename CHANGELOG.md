@@ -1,5 +1,16 @@
 # Histórico de versões
 
+## 2.1.0 — 2026-10-28
+
+### Novo
+- Painel mostra o quadro **Conexão e segurança** (modo, TURN cadastrado, consumo do mês) com botão **Configurar**.
+- **Testar conexão** salva o que está na tela e explica o motivo da falha (credencial recusada, servidor inacessível, sem resposta).
+- Testes de navegador real da tela de cadastro, para cada método (Cloudflare, coturn, usuário/senha), contra um servidor TURN de teste com autenticação real.
+- Laboratório de redes isoladas aprovado: outra casa (direta, ~2 s), VPN, empresa e 4G/CGNAT (retransmissão, ~3–6 s).
+
+### Alterado
+- Espectador troca para a retransmissão em ~4 s quando nenhuma tentativa de conexão direta é respondida (antes 12 s).
+
 ## 2.0.0 — 2026-10-28
 
 ### Novo

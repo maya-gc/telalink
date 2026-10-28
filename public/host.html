@@ -16,6 +16,19 @@
 
   <div id="tunnelStatus" class="banner wait">Verificando link externo...</div>
 
+  <div class="card" id="connCard">
+    <div class="row spread">
+      <h2 style="margin:0">Conexão e segurança</h2>
+      <a class="btn small" id="btnConfig" href="/config">Configurar</a>
+    </div>
+    <ul class="viewers" id="connSummary" style="margin-top:8px">
+      <li><span>Modo padrão</span><span class="stat" id="sumMode">...</span></li>
+      <li><span>Servidor TURN</span><span class="stat" id="sumTurn">...</span></li>
+      <li><span>Consumo de TURN este mês</span><span class="stat" id="sumUsage">...</span></li>
+    </ul>
+    <small class="hint">Cadastre aqui um servidor TURN (Cloudflare, coturn próprio ou usuário/senha) para reduzir o atraso em redes difíceis. Sem TURN, essas redes usam a retransmissão pelo link, que já funciona.</small>
+  </div>
+
   <!-- ETAPA 1 -->
   <div class="card" id="setup">
     <h2>O que você vai mostrar?</h2>

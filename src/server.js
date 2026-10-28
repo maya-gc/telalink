@@ -157,7 +157,15 @@ export function createServer({
       return json(res, 200, { roomId, pin });
     }
     if (pathname === '/api/info') {
-      return json(res, 200, { tunnel: getTunnelInfo(), defaultMode: settings ? settings.data.defaultMode : 'auto' });
+      const conexao = settings ? {
+        defaultMode: settings.data.defaultMode,
+        provider: settings.data.turn.provider,
+        capGB: settings.data.capGB,
+        usageGB: Number(settings.usageGB().toFixed(2)),
+        overCap: settings.overCap(),
+        turnError: iceProvider.lastError || null,
+      } : { defaultMode: 'auto', provider: 'none', capGB: null, usageGB: 0, overCap: false, turnError: null };
+      return json(res, 200, { tunnel: getTunnelInfo(), defaultMode: conexao.defaultMode, conexao });
     }
     if (pathname === '/api/settings') {
       if (!settings) return text(res, 404, 'Configuracoes indisponiveis');

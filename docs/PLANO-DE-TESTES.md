@@ -8,7 +8,7 @@
 | Unidade | `crypto`, `media`, `settings`, `turn`, `ws-lite`, `lab` | Funções isoladas, casos de borda, entradas maliciosas | Cada envio (CI) |
 | Integração | `server`, `acesso`, `relay`, `tunnel`, `main` | Servidor real em porta aleatória, WebSocket real, processo real | Cada envio (CI) |
 | Estático | `arquivos` | `.bat` (CRLF/ASCII/redirecionamentos), sintaxe, CSP, IDs do HTML | Cada envio (CI) |
-| E2E | `e2e` | Chromium real: direta, retransmissão, máxima segurança, chave ausente/adulterada | Cada envio (CI, 3 sistemas) |
+| E2E | `e2e`, `proxy-https`, `config-ui` | Chromium real: direta, retransmissão, máxima segurança, chave ausente/adulterada, caminho https como na Cloudflare, cadastro de cada método TURN contra um servidor TURN de teste com autenticação real | Cada envio (CI, 3 sistemas) |
 | Rede | `lab/` | Transmissor e espectadores em redes isoladas com NAT/firewall reais | Envio na `main`, PR e semanal |
 | Manual | Este documento | Rede de celular real, outro PC | Antes de cada versão |
 

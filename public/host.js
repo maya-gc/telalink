@@ -31,10 +31,20 @@ function renderTunnel() {
   if (roomId) $('shareLink').value = linkFor();
 }
 
+const PROVIDER_LABEL = { none: 'Nenhum (usa a retransmissão pelo link)', cloudflare: 'Cloudflare TURN', coturn: 'TURN próprio (coturn)', static: 'Usuário e senha fixos' };
+function renderConn(c) {
+  if (!c) return;
+  $('sumMode').textContent = c.defaultMode === 'relay' ? 'Máxima segurança' : 'Padrão (direta → TURN → retransmissão)';
+  $('sumTurn').textContent = PROVIDER_LABEL[c.provider] + (c.turnError ? ` — erro: ${c.turnError}` : '');
+  $('sumUsage').textContent = c.provider === 'none' ? '—'
+    : `${c.usageGB} GB${c.capGB ? ` de ${c.capGB} GB` : ' (sem limite)'}${c.overCap ? ' — limite atingido, TURN pausado' : ''}`;
+}
+
 async function pollTunnel() {
   try {
     const info = await (await fetch('/api/info')).json();
     tunnel = info.tunnel;
+    renderConn(info.conexao);
     if (!roomId && info.defaultMode) {
       const r = document.querySelector(`input[name=policy][value=${info.defaultMode}]`);
       if (r && !pollTunnel.done) { r.checked = true; pollTunnel.done = true; }
@@ -81,6 +91,7 @@ $('btnStart').onclick = async () => {
   $('preview').srcObject = stream;
   $('policyTxt').textContent = policy === 'relay' ? 'Máxima segurança' : 'Padrão';
   $('setup').classList.add('hidden');
+  $('connCard').classList.add('hidden');
   $('share').classList.remove('hidden');
   renderTunnel();
   if (stream.getAudioTracks().length === 0 && $('optAudio').checked) {
