@@ -7,7 +7,8 @@ import { $, show, openSocket, describeTransport, TRANSPORT_LABEL, supportsWebCod
 import { keyFromHash, deriveKeys, SecureChannel } from './crypto.js';
 import { RelayReceiver } from './relay.js';
 
-const P2P_TIMEOUT_MS = 12_000;
+const P2P_TIMEOUT_MS = 12_000;   // limite absoluto para a conexao direta/TURN
+const NO_RESPONSE_MS = 4_000;    // sem NENHUMA resposta nesse tempo = rede bloqueando
 const roomId = new URLSearchParams(location.search).get('room');
 const sessionKey = keyFromHash(location.hash);
 
@@ -105,6 +106,7 @@ async function onHostSignal(p) {
   if (p.kind === 'hello') {
     if (p.policy === 'relay' || typeof RTCPeerConnection !== 'function') return startRelay();
     p2pTimer = setTimeout(() => { if (transport === 'conectando') fallbackToRelay(); }, P2P_TIMEOUT_MS);
+    watchNoResponse(Date.now());
     return;
   }
   if (p.kind === 'sdp') {
@@ -145,6 +147,25 @@ function createPeer() {
       fallbackToRelay();
     }
   };
+}
+
+// Se as tentativas de conexao direta nao recebem NENHUMA resposta (firewall de
+// empresa, NAT de operadora), troca cedo em vez de esperar o limite inteiro.
+function watchNoResponse(start) {
+  const tick = async () => {
+    if (transport !== 'conectando') return;
+    if (pc && Date.now() - start >= NO_RESPONSE_MS) {
+      let sent = 0, answered = 0;
+      try {
+        (await pc.getStats()).forEach((s) => {
+          if (s.type === 'candidate-pair') { sent += s.requestsSent || 0; answered += (s.responsesReceived || 0) + (s.requestsReceived || 0); }
+        });
+      } catch {}
+      if (sent > 0 && answered === 0) { diag.states.push('sem-resposta'); return fallbackToRelay(); }
+    }
+    setTimeout(tick, 1000);
+  };
+  setTimeout(tick, 1000);
 }
 
 async function fallbackToRelay() {
