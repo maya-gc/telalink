@@ -52,6 +52,10 @@ up() {
   # --- casa / casa2 / vpn: NAT residencial comum (mapeamento estavel, filtro por conexao)
   for s in casa casa2 vpn; do
     ns "$s-r" iptables -t nat -A POSTROUTING -o wan -j MASQUERADE
+    # Roteador domestico tipico: registro de pacote UDP nao solicitado expira
+    # rapido. Sem isso, o NAT do Linux troca a porta quando o pacote do outro
+    # lado chega primeiro, e vira um NAT "dificil" (nao representativo).
+    ns "$s-r" sysctl -qw net.netfilter.nf_conntrack_udp_timeout=2 || true
   done
   # A porta 443 publica o proxy https do transmissor (papel da Cloudflare no mundo real).
   ns casa-r iptables -t nat -A PREROUTING -i wan -p tcp --dport 443 -j DNAT --to-destination 192.168.10.2:8443
