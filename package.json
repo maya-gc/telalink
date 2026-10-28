@@ -1,0 +1,19 @@
+{
+  "name": "telalink",
+  "version": "2.0.0",
+  "description": "TelaLink: compartilhamento de tela seguro por link, com criptografia de ponta a ponta.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "selfcheck": "node scripts/selfcheck.js",
+    "test": "node --test --test-reporter=spec \"test/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/** --test-coverage-include=public/crypto.js --test-coverage-include=public/media-util.js --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=spec \"test/*.test.js\"",
+    "test:e2e:setup": "npm install --no-save playwright && npx playwright install chromium",
+    "lab": "sudo -E env \"PATH=$PATH\" bash lab/run.sh"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

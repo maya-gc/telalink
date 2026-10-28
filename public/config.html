@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TelaLink — Conexão e segurança</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body class="page">
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Tela<span>Link</span> · Conexão e segurança</h1>
+    <a class="btn ghost small" href="/">Voltar ao painel</a>
+  </header>
+  <p class="sub">Estas configurações ficam só neste computador, fora da pasta do projeto. Tokens e senhas são guardados criptografados (<span id="storageProt">...</span>) e nunca são enviados para quem assiste.</p>
+
+  <div class="card">
+    <h2>Como funciona a conexão</h2>
+    <p class="hint" style="margin-top:0">Para cada pessoa, o TelaLink tenta nesta ordem: <b>1) conexão direta</b> (menor atraso) → <b>2) TURN</b>, se configurado abaixo → <b>3) retransmissão pelo link</b>, que funciona em qualquer rede onde a página abre (VPN, empresa, 4G). Em <b>todos</b> os caminhos o vídeo é criptografado de ponta a ponta com a chave do link: nenhum intermediário consegue ver sua tela.</p>
+    <table class="cmp" style="margin-top:10px">
+      <tr><th>Caminho</th><th>Atraso</th><th>Custo</th><th>Quem participa</th></tr>
+      <tr><td>Conexão direta</td><td>~0,2 s</td><td>Grátis</td><td>Só os dois computadores</td></tr>
+      <tr><td>TURN</td><td>~0,2–0,3 s</td><td>Depende do provedor</td><td>O provedor TURN (só repassa dados cifrados)</td></tr>
+      <tr><td>Retransmissão pelo link</td><td>~0,5–1 s</td><td>Grátis</td><td>Seu PC e a Cloudflare (só repassam dados cifrados)</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Modo padrão das transmissões</h2>
+    <div class="choices">
+      <label class="choice"><input type="radio" name="defaultMode" value="auto" />
+        <span class="title">Padrão <span class="badge rec">Recomendado</span></span>
+        <div class="desc">Direta → TURN → retransmissão, automaticamente.</div></label>
+      <label class="choice"><input type="radio" name="defaultMode" value="relay" />
+        <span class="title">Máxima segurança <span class="badge adv">Pós-quântico</span></span>
+        <div class="desc">Sempre retransmissão cifrada com AES-256 e chave pré-compartilhada (o link). Não usa troca de chaves por curvas elípticas, que computadores quânticos poderiam quebrar no futuro. Atraso maior.</div></label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Servidor TURN (opcional)</h2>
+    <div class="choices" id="providers">
+      <label class="choice"><input type="radio" name="provider" value="none" />
+        <span class="title">Nenhum <span class="badge rec">Recomendado · grátis</span></span>
+        <div class="desc">Sem conta e sem cartão. Quem não conseguir conexão direta usa a retransmissão pelo link. Mais simples e sem risco de cobrança.</div></label>
+
+      <label class="choice"><input type="radio" name="provider" value="cloudflare" />
+        <span class="title">Cloudflare TURN <span class="badge rec">Mais seguro entre os TURN</span></span>
+        <div class="desc">Menor atraso em redes difíceis. Exige conta Cloudflare com cartão (cota gratuita mensal). O API Token fica só neste PC; quem assiste recebe senhas temporárias de 4 horas. Use a trava de consumo abaixo.</div></label>
+
+      <label class="choice"><input type="radio" name="provider" value="coturn" />
+        <span class="title">TURN próprio (coturn) <span class="badge adv">Avançado</span></span>
+        <div class="desc">Seu próprio servidor (ex.: VPS). Controle total: só a sua máquina participa. Use <span class="mono">use-auth-secret</span> no coturn; o segredo fica aqui e quem assiste recebe senhas temporárias.</div></label>
+
+      <label class="choice"><input type="radio" name="provider" value="static" />
+        <span class="title">Usuário e senha fixos <span class="badge weak">Menos seguro</span></span>
+        <div class="desc">Para provedores que só dão usuário/senha. A senha precisa ir para o navegador de quem assiste e não expira: alguém mal-intencionado com o link e o PIN pode reaproveitá-la e gastar sua cota.</div></label>
+    </div>
+
+    <div id="f-cloudflare" class="hidden">
+      <label class="field"><span>Turn Token ID</span><input id="cfKeyId" type="text" class="mono" autocomplete="off" /></label>
+      <label class="field"><span>API Token <small id="cfTokenNow"></small></span><input id="cfToken" type="password" class="mono" autocomplete="new-password" placeholder="cole para definir ou trocar" /></label>
+      <small class="hint">Painel da Cloudflare → Realtime (ou Calls) → TURN Server → Create.</small>
+    </div>
+    <div id="f-coturn" class="hidden">
+      <label class="field"><span>Endereços (um por linha)</span><textarea id="ctUrls" rows="3" class="mono" placeholder="turns:turn.seudominio.com:443?transport=tcp&#10;turn:turn.seudominio.com:3478"></textarea></label>
+      <label class="field"><span>static-auth-secret <small id="ctSecretNow"></small></span><input id="ctSecret" type="password" class="mono" autocomplete="new-password" placeholder="cole para definir ou trocar" /></label>
+      <small class="hint">Inclua um endereço <span class="mono">turns:...:443?transport=tcp</span>: passa por firewalls de empresa.</small>
+    </div>
+    <div id="f-static" class="hidden">
+      <label class="field"><span>Endereços (um por linha)</span><textarea id="stUrls" rows="3" class="mono"></textarea></label>
+      <label class="field"><span>Usuário</span><input id="stUser" type="text" class="mono" autocomplete="off" /></label>
+      <label class="field"><span>Senha <small id="stCredNow"></small></span><input id="stCred" type="password" class="mono" autocomplete="new-password" placeholder="cole para definir ou trocar" /></label>
+    </div>
+
+    <h2 style="margin-top:18px">Trava de consumo do TURN</h2>
+    <div class="row">
+      <label class="field" style="flex:1"><span>Limite mensal estimado (GB) — vazio = sem limite</span><input id="capGB" type="number" min="1" max="100000" /></label>
+      <div class="stat" style="flex:1">Usado este mês (estimado): <b id="usage">0</b>&nbsp;GB</div>
+    </div>
+    <small class="hint">Ao atingir o limite, o TURN é pausado até o próximo mês e as pessoas passam a usar a retransmissão pelo link. A estimativa é conservadora (conta o dobro).</small>
+  </div>
+
+  <div class="row">
+    <button id="btnSave">Salvar</button>
+    <button id="btnTest" class="ghost">Testar conexão</button>
+  </div>
+  <div id="msg"></div>
+  <p class="hint" id="storageDir" style="margin-top:16px"></p>
+</div>
+<script type="module" src="/config.js"></script>
+</body>
+</html>

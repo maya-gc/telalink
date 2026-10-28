@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TelaLink — Assistir</title>
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .gate { max-width: 420px; margin: 12vh auto; padding: 0 16px; text-align: center; }
+  .pinput { text-align: center; font-size: 28px !important; letter-spacing: 10px; margin: 16px 0; font-family: ui-monospace, monospace; }
+  .gate button { width: 100%; }
+  .stage { display: none; height: 100vh; background: #000; position: relative; }
+  .stage.on { display: block; }
+  .stage video, .stage canvas { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  .bar {
+    position: fixed; top: 0; left: 0; right: 0; padding: 8px 14px; z-index: 2;
+    display: flex; gap: 12px; align-items: center; justify-content: space-between;
+    background: linear-gradient(#000a, transparent); color: #fff; font-size: 13px;
+    opacity: 0; transition: opacity .2s;
+  }
+  .stage:hover .bar, .bar.show { opacity: 1; }
+  .bar button { padding: 6px 14px; background: #ffffff22; }
+  .lock { color: var(--ok); }
+</style>
+</head>
+<body>
+  <div class="gate" id="gate">
+    <h1 class="brand">Tela<span>Link</span></h1>
+    <p class="sub">Digite o PIN de 6 dígitos que você recebeu.</p>
+    <input class="pinput" id="pin" type="text" inputmode="numeric" maxlength="6" placeholder="------" autocomplete="off" />
+    <button id="btnJoin">Entrar</button>
+    <div id="gateMsg"></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="bar" id="bar">
+      <span><span class="lock">🔒</span> Criptografado de ponta a ponta · <span id="transportTxt">Conectando...</span></span>
+      <span class="row">
+        <button id="btnSound" class="hidden">🔊 Ativar som</button>
+        <button id="btnFull">Tela cheia</button>
+      </span>
+    </div>
+    <video id="remote" autoplay playsinline></video>
+    <canvas id="relayCanvas" class="hidden"></canvas>
+  </div>
+<script type="module" src="/viewer.js"></script>
+</body>
+</html>

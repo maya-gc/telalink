@@ -1,0 +1,8 @@
+# Mantem as acoes do GitHub Actions atualizadas (correcoes de seguranca).
+# O TelaLink nao tem dependencias npm em producao.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

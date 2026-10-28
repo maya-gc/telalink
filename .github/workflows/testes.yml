@@ -1,0 +1,76 @@
+# =============================================================================
+#  Testes automaticos do TelaLink
+#  Roda em cada envio e pull request, em Windows, macOS e Linux.
+#  Portao de qualidade: qualquer teste falhando ou cobertura abaixo do minimo
+#  marca a versao como reprovada (X vermelho).
+# =============================================================================
+name: testes
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      TUNNEL: "0"
+      NO_OPEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Autoteste de inicializacao
+        run: node scripts/selfcheck.js
+
+      - name: Instalar navegador para os testes E2E
+        run: npm run test:e2e:setup
+
+      - name: Testes (unidade, integracao, seguranca, E2E com navegador real)
+        run: npm test
+
+      - name: Iniciar.bat sobe o servidor de verdade (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Start-Process cmd -ArgumentList '/c','Iniciar.bat' -WindowStyle Hidden
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Seconds 1
+            try { if ((Invoke-WebRequest http://localhost:8080/health -UseBasicParsing).StatusCode -eq 200) { $ok = $true; break } } catch {}
+          }
+          Get-Process node, cmd -ErrorAction SilentlyContinue | Stop-Process -Force
+          if (-not $ok) { throw 'Iniciar.bat nao subiu o servidor' }
+
+  cobertura:
+    name: Cobertura minima de testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TUNNEL: "0"
+      NO_OPEN: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm run test:e2e:setup
+      - name: Testes com medicao de cobertura (minimo obrigatorio)
+        run: npm run test:coverage

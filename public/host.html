@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TelaLink — Transmitir</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body class="page">
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Tela<span>Link</span></h1>
+    <a class="btn ghost small" href="/config">Conexão e segurança</a>
+  </header>
+  <p class="sub">Imagem e áudio criptografados de ponta a ponta: nem o servidor nem a Cloudflare conseguem ver sua tela.</p>
+
+  <div id="tunnelStatus" class="banner wait">Verificando link externo...</div>
+
+  <!-- ETAPA 1 -->
+  <div class="card" id="setup">
+    <h2>O que você vai mostrar?</h2>
+    <div class="choices">
+      <label class="choice"><input type="radio" name="hint" value="motion" checked />
+        <span class="title">Vídeo / movimento</span>
+        <div class="desc">YouTube, filmes, jogos. Prioriza fluidez.</div></label>
+      <label class="choice"><input type="radio" name="hint" value="detail" />
+        <span class="title">Texto / detalhes</span>
+        <div class="desc">Slides, documentos, código. Prioriza nitidez.</div></label>
+    </div>
+    <label class="opt"><input type="checkbox" id="optAudio" checked /> Incluir áudio do computador</label>
+
+    <h2 style="margin-top:18px">Segurança da conexão</h2>
+    <div class="choices">
+      <label class="choice"><input type="radio" name="policy" value="auto" checked />
+        <span class="title">Padrão <span class="badge rec">Recomendado</span></span>
+        <div class="desc">Conexão direta quando possível (menor atraso); se a rede bloquear, troca sozinha para TURN ou retransmissão pelo link. Sempre criptografado.</div></label>
+      <label class="choice"><input type="radio" name="policy" value="relay" />
+        <span class="title">Máxima segurança <span class="badge adv">Pós-quântico</span></span>
+        <div class="desc">Todo o vídeo passa pela retransmissão cifrada com AES-256 e a chave do link (criptografia simétrica, resistente a computadores quânticos). Atraso um pouco maior.</div></label>
+    </div>
+
+    <small class="hint">💡 <b>Vídeo do YouTube ficando preto?</b> Escolha <b>“Aba”</b> na janela do navegador e marque <b>“Compartilhar áudio”</b>. Compartilhar uma “Janela” com vídeo pode sair preto por causa da aceleração de hardware. Filmes pagos/protegidos (DRM) aparecem pretos de propósito e não podem ser transmitidos.</small>
+    <div class="row" style="margin-top:16px">
+      <button id="btnStart">Iniciar transmissão</button>
+    </div>
+    <div id="setupMsg"></div>
+  </div>
+
+  <!-- ETAPA 2 -->
+  <div class="card hidden" id="share">
+    <div class="row spread">
+      <span class="stat"><span class="dot live" id="liveDot"></span> <span id="liveTxt">No ar</span> · <span id="policyTxt"></span></span>
+      <span class="stat">Assistindo: <span class="count" id="viewerCount">0</span></span>
+    </div>
+
+    <div id="blackWarning" class="msg warn hidden"></div>
+
+    <div style="margin-top:16px">
+      <strong>1. Envie este link</strong>
+      <div class="link-box">
+        <input id="shareLink" class="mono" type="text" readonly />
+        <button id="btnCopyLink" class="ghost">Copiar</button>
+      </div>
+      <small class="hint">O link contém a chave secreta (a parte depois do <b>#</b>). Ela nunca é enviada a servidores.</small>
+    </div>
+
+    <div style="margin-top:16px">
+      <strong>2. E este PIN, de preferência por outro canal</strong>
+      <div class="row spread" style="margin-top:6px">
+        <span class="pin" id="pinView">------</span>
+        <button id="btnCopyAll" class="ghost">Copiar link + PIN</button>
+      </div>
+    </div>
+
+    <ul class="viewers" id="viewerList"></ul>
+    <video id="preview" class="preview" muted autoplay playsinline></video>
+
+    <div class="row" style="margin-top:16px">
+      <button id="btnStop" class="ghost">Encerrar transmissão</button>
+    </div>
+    <div id="shareMsg"></div>
+  </div>
+</div>
+<script type="module" src="/host.js"></script>
+</body>
+</html>

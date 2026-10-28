@@ -1,0 +1,51 @@
+# =============================================================================
+#  Laboratorio de redes isoladas
+#  Cria uma "internet" virtual com redes separadas (casa, outra casa, empresa
+#  com firewall, 4G/CGNAT, VPN sem WebRTC), coloca o transmissor em uma e um
+#  espectador em cada outra, e confere se a imagem chega e por qual caminho.
+#  O resultado aparece em forma de tabela no resumo da execucao.
+# =============================================================================
+name: laboratorio-de-redes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * 1"   # toda segunda, para pegar mudancas de navegador
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  laboratorio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.navegadores
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Instalar navegador
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Rodar o laboratorio (precisa de root para criar as redes)
+        run: sudo -E env "PATH=$PATH" bash lab/run.sh
+
+      - name: Guardar evidencias (capturas de tela e logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: laboratorio-evidencias
+          path: lab-results/
+          retention-days: 30
