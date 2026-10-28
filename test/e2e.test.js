@@ -45,9 +45,13 @@ async function startHost({ policy = 'auto' } = {}) {
   const page = await ctx.newPage();
   await page.goto(app.base + '/');
   await page.waitForSelector('#tunnelStatus.on');
-  await page.check(`input[name=policy][value=${policy}]`);
-  await page.click('#btnStart');
-  await page.waitForSelector('#share:not(.hidden)');
+  if (policy !== 'auto') {
+    await page.click('#btnSettings');
+    await page.check(`input[name=policy][value=${policy}]`);
+    await page.click('#btnSaveSettings');
+  }
+  await page.click('#btnScreen');
+  await page.waitForSelector('#live:not(.hidden)');
   const link = await page.inputValue('#shareLink');
   const pin = (await page.textContent('#pinView')).trim();
   return { page, ctx, link, pin };

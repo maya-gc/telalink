@@ -6,6 +6,8 @@ export async function startApp(opts = {}) {
   const app = await startServer({ port: 0, host: '127.0.0.1', log: () => {}, ...opts });
   app.base = `http://127.0.0.1:${app.port}`;
   app.ws = `ws://127.0.0.1:${app.port}`;
+  app.extBase = `http://127.0.0.1:${app.externalPort}`;   // porta dos tuneis
+  app.extWs = `ws://127.0.0.1:${app.externalPort}`;
   return app;
 }
 

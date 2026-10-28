@@ -3,97 +3,160 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>TelaLink — Transmitir</title>
+<title>TelaLink</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="page">
 <div class="wrap">
   <header class="top">
     <h1 class="brand">Tela<span>Link</span></h1>
-    <a class="btn ghost small" href="/config">Conexão e segurança</a>
+    <div class="row">
+      <span id="tunnelStatus" class="pill wait" title="Link externo">Preparando link…</span>
+      <button id="btnSettings" class="ghost small" aria-haspopup="dialog">⚙ Configurações</button>
+    </div>
   </header>
-  <p class="sub">Imagem e áudio criptografados de ponta a ponta: nem o servidor nem a Cloudflare conseguem ver sua tela.</p>
 
-  <div id="tunnelStatus" class="banner wait">Verificando link externo...</div>
-
-  <div class="card" id="connCard">
-    <div class="row spread">
-      <h2 style="margin:0">Conexão e segurança</h2>
-      <a class="btn small" id="btnConfig" href="/config">Configurar</a>
+  <!-- ======================= INICIO: 1 clique ======================= -->
+  <section id="home">
+    <h2 class="hero-title">O que você quer mostrar?</h2>
+    <div class="tiles">
+      <button id="btnScreen" class="tile">
+        <span class="tile-icon" aria-hidden="true">🖥️</span>
+        <span class="tile-title">Minha tela</span>
+        <span class="tile-desc">Tela inteira, uma janela ou uma aba do navegador</span>
+      </button>
+      <button id="btnImages" class="tile">
+        <span class="tile-icon" aria-hidden="true">🖼️</span>
+        <span class="tile-title">Imagens</span>
+        <span class="tile-desc">Fotos, prints ou slides do computador</span>
+      </button>
     </div>
-    <ul class="viewers" id="connSummary" style="margin-top:8px">
-      <li><span>Modo padrão</span><span class="stat" id="sumMode">...</span></li>
-      <li><span>Servidor TURN</span><span class="stat" id="sumTurn">...</span></li>
-      <li><span>Consumo de TURN este mês</span><span class="stat" id="sumUsage">...</span></li>
-    </ul>
-    <small class="hint">Cadastre aqui um servidor TURN (Cloudflare, coturn próprio ou usuário/senha) para reduzir o atraso em redes difíceis. Sem TURN, essas redes usam a retransmissão pelo link, que já funciona.</small>
-  </div>
+    <input id="fileImages" type="file" accept="image/*" multiple class="hidden" />
+    <p class="hint center" id="summary">…</p>
+    <div id="homeMsg"></div>
+  </section>
 
-  <!-- ETAPA 1 -->
-  <div class="card" id="setup">
-    <h2>O que você vai mostrar?</h2>
-    <div class="choices">
-      <label class="choice"><input type="radio" name="hint" value="motion" checked />
-        <span class="title">Vídeo / movimento</span>
-        <div class="desc">YouTube, filmes, jogos. Prioriza fluidez.</div></label>
-      <label class="choice"><input type="radio" name="hint" value="detail" />
-        <span class="title">Texto / detalhes</span>
-        <div class="desc">Slides, documentos, código. Prioriza nitidez.</div></label>
-    </div>
-    <label class="opt"><input type="checkbox" id="optAudio" checked /> Incluir áudio do computador</label>
-
-    <h2 style="margin-top:18px">Segurança da conexão</h2>
-    <div class="choices">
-      <label class="choice"><input type="radio" name="policy" value="auto" checked />
-        <span class="title">Padrão <span class="badge rec">Recomendado</span></span>
-        <div class="desc">Conexão direta quando possível (menor atraso); se a rede bloquear, troca sozinha para TURN ou retransmissão pelo link. Sempre criptografado.</div></label>
-      <label class="choice"><input type="radio" name="policy" value="relay" />
-        <span class="title">Máxima segurança <span class="badge adv">Pós-quântico</span></span>
-        <div class="desc">Todo o vídeo passa pela retransmissão cifrada com AES-256 e a chave do link (criptografia simétrica, resistente a computadores quânticos). Atraso um pouco maior.</div></label>
-    </div>
-
-    <small class="hint">💡 <b>Vídeo do YouTube ficando preto?</b> Escolha <b>“Aba”</b> na janela do navegador e marque <b>“Compartilhar áudio”</b>. Compartilhar uma “Janela” com vídeo pode sair preto por causa da aceleração de hardware. Filmes pagos/protegidos (DRM) aparecem pretos de propósito e não podem ser transmitidos.</small>
-    <div class="row" style="margin-top:16px">
-      <button id="btnStart">Iniciar transmissão</button>
-    </div>
-    <div id="setupMsg"></div>
-  </div>
-
-  <!-- ETAPA 2 -->
-  <div class="card hidden" id="share">
-    <div class="row spread">
-      <span class="stat"><span class="dot live" id="liveDot"></span> <span id="liveTxt">No ar</span> · <span id="policyTxt"></span></span>
-      <span class="stat">Assistindo: <span class="count" id="viewerCount">0</span></span>
-    </div>
-
-    <div id="blackWarning" class="msg warn hidden"></div>
-
-    <div style="margin-top:16px">
-      <strong>1. Envie este link</strong>
-      <div class="link-box">
-        <input id="shareLink" class="mono" type="text" readonly />
-        <button id="btnCopyLink" class="ghost">Copiar</button>
+  <!-- ======================= AO VIVO ======================= -->
+  <section id="live" class="hidden">
+    <div class="card">
+      <div class="row spread">
+        <span class="live-badge"><span class="dot live" id="liveDot"></span> <span id="liveTxt">Ao vivo</span></span>
+        <span class="stat">Assistindo: <span class="count" id="viewerCount">0</span></span>
       </div>
-      <small class="hint">O link contém a chave secreta (a parte depois do <b>#</b>). Ela nunca é enviada a servidores.</small>
-    </div>
 
-    <div style="margin-top:16px">
-      <strong>2. E este PIN, de preferência por outro canal</strong>
-      <div class="row spread" style="margin-top:6px">
-        <span class="pin" id="pinView">------</span>
-        <button id="btnCopyAll" class="ghost">Copiar link + PIN</button>
+      <div class="invite">
+        <div class="invite-pin"><span class="hint">PIN</span><span class="pin" id="pinView">------</span></div>
+        <div class="invite-link">
+          <input id="shareLink" class="mono" type="text" readonly aria-label="Link para assistir" />
+          <div class="row">
+            <button id="btnCopyInvite">Copiar convite</button>
+            <button id="btnCopyLink" class="ghost">Só o link</button>
+          </div>
+        </div>
       </div>
+      <div id="toast" class="toast hidden" role="status"></div>
+      <small class="hint">O convite tem o link e o PIN. Cole no WhatsApp ou e-mail. A chave secreta fica na parte do link depois do <b>#</b> e nunca é enviada a servidores.</small>
     </div>
 
-    <ul class="viewers" id="viewerList"></ul>
-    <video id="preview" class="preview" muted autoplay playsinline></video>
+    <div class="card">
+      <div class="toolbar" role="toolbar" aria-label="Controles da transmissão">
+        <button id="btnPause" class="ghost">⏸ Pausar</button>
+        <button id="btnMute" class="ghost">🔊 Som ligado</button>
+        <label class="vol" title="Volume do som enviado">
+          <span aria-hidden="true">🔉</span>
+          <input id="volume" type="range" min="0" max="200" step="5" value="100" aria-label="Volume do som enviado" />
+          <span id="volumeTxt" class="mono">100%</span>
+        </label>
+        <label class="row" title="Qualidade da imagem">
+          <span class="hint" style="margin:0">Qualidade</span>
+          <select id="liveQuality" aria-label="Qualidade da imagem"></select>
+        </label>
+        <button id="btnSwitch" class="ghost">🔄 Trocar</button>
+        <button id="btnLock" class="ghost" aria-pressed="false">🔓 Sala aberta</button>
+        <button id="btnStop" class="danger">⏹ Encerrar</button>
+      </div>
 
-    <div class="row" style="margin-top:16px">
-      <button id="btnStop" class="ghost">Encerrar transmissão</button>
+      <div id="switchMenu" class="menu hidden">
+        <button id="swScreen" class="ghost small">🖥️ Mostrar outra tela/janela</button>
+        <button id="swImages" class="ghost small">🖼️ Mostrar imagens</button>
+      </div>
+
+      <div id="imgControls" class="row spread hidden" style="margin-top:12px">
+        <button id="imgPrev" class="ghost small">◀ Anterior</button>
+        <span id="imgPos" class="stat">1 de 1</span>
+        <button id="imgNext" class="ghost small">Próxima ▶</button>
+        <button id="imgAdd" class="ghost small">＋ Adicionar</button>
+      </div>
+
+      <div id="blackWarning" class="msg warn hidden"></div>
+      <video id="preview" class="preview" muted autoplay playsinline></video>
+      <div id="shareMsg"></div>
     </div>
-    <div id="shareMsg"></div>
-  </div>
+
+    <div class="card">
+      <h2>Quem está assistindo</h2>
+      <ul class="viewers" id="viewerList"><li class="hint">Ninguém ainda. Envie o convite.</li></ul>
+    </div>
+  </section>
 </div>
+
+<!-- ======================= CONFIGURACOES ======================= -->
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <div id="settingsForm">
+    <div class="row spread">
+      <h2 id="settingsTitle" style="margin:0">Configurações</h2>
+      <button type="button" id="btnCloseSettings" class="ghost small" aria-label="Fechar">✕</button>
+    </div>
+
+    <fieldset>
+      <legend>Imagem</legend>
+      <label class="field"><span>Qualidade</span><select id="optQuality"></select></label>
+      <label class="field"><span>Quadros por segundo</span>
+        <select id="optFps"><option value="15">15 (economiza internet)</option><option value="30">30 (padrão)</option><option value="60">60 (jogos e vídeos rápidos)</option></select></label>
+      <div class="choices compact">
+        <label class="choice"><input type="radio" name="hint" value="motion" /> <span class="title">Vídeo / movimento</span><div class="desc">YouTube, filmes, jogos. Prioriza fluidez.</div></label>
+        <label class="choice"><input type="radio" name="hint" value="detail" /> <span class="title">Texto / detalhes</span><div class="desc">Slides, documentos, código. Prioriza nitidez.</div></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Áudio</legend>
+      <label class="opt"><input type="checkbox" id="optAudio" /> Incluir o som do computador</label>
+      <label class="field"><span>Volume inicial: <b id="optVolumeTxt">100%</b></span><input id="optVolume" type="range" min="0" max="200" step="5" /></label>
+      <small class="hint">💡 Para o som ir junto, escolha “Aba” ou “Tela inteira” e marque “Compartilhar áudio” na janela do navegador.</small>
+    </fieldset>
+
+    <fieldset>
+      <legend>Conexão e segurança</legend>
+      <div class="choices compact">
+        <label class="choice"><input type="radio" name="policy" value="auto" /> <span class="title">Padrão <span class="badge rec">Recomendado</span></span><div class="desc">Conexão direta quando possível; se a rede bloquear, troca sozinha. Sempre criptografado.</div></label>
+        <label class="choice"><input type="radio" name="policy" value="relay" /> <span class="title">Máxima segurança <span class="badge adv">Pós-quântico</span></span><div class="desc">Sempre pela retransmissão cifrada com AES-256 e a chave do link. Atraso um pouco maior.</div></label>
+      </div>
+      <label class="field"><span>Link externo</span>
+        <select id="optTunnel">
+          <option value="auto">Automático (recomendado)</option>
+          <option value="ssh">SSH do Windows — não precisa instalar nada</option>
+          <option value="cloudflare">Cloudflare — mais robusto, precisa instalar uma vez</option>
+          <option value="off">Desligado (só neste computador)</option>
+        </select></label>
+      <ul class="viewers" id="connSummary">
+        <li><span>Link externo agora</span><span class="stat" id="sumTunnel">…</span></li>
+        <li><span>Servidor TURN</span><span class="stat" id="sumTurn">…</span></li>
+        <li><span>Consumo de TURN este mês</span><span class="stat" id="sumUsage">…</span></li>
+        <li><span>Modo padrão</span><span class="stat" id="sumMode">…</span></li>
+      </ul>
+      <a class="btn ghost small" id="btnConfig" href="/config">Servidor TURN e opções avançadas →</a>
+    </fieldset>
+
+    <div class="row spread" style="margin-top:16px">
+      <span id="settingsMsg" class="hint" style="margin:0"></span>
+      <div class="row">
+        <button type="button" id="btnCancelSettings" class="ghost">Cancelar</button>
+        <button type="button" id="btnSaveSettings">Salvar</button>
+      </div>
+    </div>
+  </div>
+</dialog>
 <script type="module" src="/host.js"></script>
 </body>
 </html>

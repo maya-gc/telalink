@@ -82,3 +82,39 @@ test('tela preta: so avisa depois de 4 amostras seguidas e avisa quando volta', 
   assert.equal(det.push(black), null, 'nao repete o aviso');
   assert.equal(det.push(ok), false, 'imagem voltou');
 });
+
+import { QUALITY, captureConstraints, senderEncoding, gainFor, fitRect, inviteText, qualityPreset } from '../public/media-util.js';
+
+test('qualidade: predefinicoes simples e restricoes de captura coerentes', () => {
+  assert.deepEqual(Object.keys(QUALITY), ['auto', 'alta', 'media', 'economica']);
+  assert.deepEqual(captureConstraints('economica', 15), { width: { max: 853 }, height: { max: 480 }, frameRate: { ideal: 15, max: 15 } });
+  assert.equal(captureConstraints('alta', 60).frameRate.max, 60);
+  assert.equal(captureConstraints('inexistente', 999).height.max, 1080, 'valor desconhecido cai no automatico');
+  assert.equal(captureConstraints('auto', 999).frameRate.max, 30);
+  assert.equal(qualityPreset('nada'), QUALITY.auto);
+});
+
+test('qualidade: envio reduz a escala da fonte e limita a banda', () => {
+  assert.deepEqual(senderEncoding('media', 30, 1080), { maxFramerate: 30, maxBitrate: 2_000_000, scaleResolutionDownBy: 1.5 });
+  assert.deepEqual(senderEncoding('auto', 60, 720), { maxFramerate: 60, scaleResolutionDownBy: 1 }, 'automatico nao limita banda');
+  assert.equal(senderEncoding('economica', 30, 2160).scaleResolutionDownBy, 4.5);
+});
+
+test('volume: 0 a 200%, mudo e pausa silenciam', () => {
+  assert.equal(gainFor({ volume: 100 }), 1);
+  assert.equal(gainFor({ volume: 200 }), 2);
+  assert.equal(gainFor({ volume: 500 }), 2, 'teto de 200%');
+  assert.equal(gainFor({ volume: -10 }), 0);
+  assert.equal(gainFor({ volume: 100, muted: true }), 0);
+  assert.equal(gainFor({ volume: 100, paused: true }), 0);
+});
+
+test('imagens: encaixe sem distorcer (retrato e paisagem)', () => {
+  assert.deepEqual(fitRect(1920, 1080, 1920, 1080), { x: 0, y: 0, w: 1920, h: 1080 });
+  assert.deepEqual(fitRect(1080, 1920, 1920, 1080), { x: 656, y: 0, w: 608, h: 1080 });
+  assert.deepEqual(fitRect(4000, 1000, 1920, 1080), { x: 0, y: 300, w: 1920, h: 480 });
+});
+
+test('convite: link e PIN prontos para colar', () => {
+  assert.equal(inviteText('https://x/view?room=1#k=abc', '123456'), 'Assista minha tela pelo TelaLink:\nhttps://x/view?room=1#k=abc\nPIN: 123456');
+});

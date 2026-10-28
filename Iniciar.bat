@@ -21,63 +21,15 @@ where node >nul 2>nul
 if errorlevel 1 goto :sem_node
 if not exist "%~dp0src\server.js" goto :sem_arquivos
 
-echo   [1/3] Autoteste rapido...
+echo   [1/2] Autoteste rapido...
 node "%~dp0scripts\selfcheck.js"
 if errorlevel 1 goto :falha_teste
 
 echo.
-echo   [2/3] Verificando o link externo (cloudflared oficial)...
-if "%TUNNEL%"=="0" goto :iniciar
-node "%~dp0scripts\cloudflared-status.js"
-if errorlevel 4 goto :assinatura_ruim
-if errorlevel 3 goto :oferecer_instalacao
-goto :iniciar
-
-:oferecer_instalacao
-echo.
-echo   Para gerar o link externo, o TelaLink usa o cloudflared, programa
-echo   oficial e assinado digitalmente pela Cloudflare. Ele ainda nao esta
-echo   instalado. A instalacao e feita pelo winget, o instalador oficial
-echo   da Microsoft, e so precisa acontecer uma vez.
-echo.
-choice /c SN /m "   Instalar o cloudflared agora"
-if errorlevel 2 goto :sem_link
-where winget >nul 2>nul
-if errorlevel 1 goto :sem_winget
-winget install --id Cloudflare.cloudflared -e --source winget --accept-source-agreements --accept-package-agreements
-node "%~dp0scripts\cloudflared-status.js"
-if errorlevel 3 goto :instalacao_falhou
-goto :iniciar
-
-:assinatura_ruim
-echo.
-echo   O cloudflared encontrado NAO tem a assinatura digital da Cloudflare,
-echo   entao nao sera usado. Reinstale pelo comando:
-echo       winget install --id Cloudflare.cloudflared -e
-goto :sem_link
-
-:sem_winget
-echo.
-echo   O winget nao esta disponivel neste Windows. Instale o aplicativo
-echo   "Instalador de Aplicativo" pela Microsoft Store e rode de novo.
-goto :sem_link
-
-:instalacao_falhou
-echo.
-echo   A instalacao nao foi concluida. Feche esta janela e tente de novo.
-goto :sem_link
-
-:sem_link
-echo.
-echo   Seguindo SEM link externo: so funciona neste computador e na sua rede.
-set TUNNEL=0
-
-:iniciar
-echo.
-echo   [3/3] Iniciando. O navegador abre sozinho no painel.
+echo   [2/2] Abrindo o TelaLink no navegador...
 echo         Se nao abrir, acesse:  http://localhost:8080
 echo.
-echo   O LINK EXTERNO aparece aqui e no painel em alguns segundos.
+echo   O link externo e preparado sozinho, sem instalar nada.
 echo   IMPORTANTE: mantenha esta janela aberta enquanto transmite.
 echo.
 node "%~dp0src\server.js"

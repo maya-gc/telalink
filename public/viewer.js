@@ -76,7 +76,8 @@ async function onMessage(m) {
   if (m.type === 'error') {
     $('btnJoin').disabled = false;
     const txt = { 'pin-invalido': 'PIN incorreto.', 'sala-inexistente': 'Transmissão não encontrada ou já encerrada.',
-      bloqueado: 'Tentativas demais. Peça um novo link a quem está transmitindo.', 'sala-cheia': 'A transmissão atingiu o limite de espectadores.' }[m.reason];
+      bloqueado: 'Tentativas demais. Peça um novo link a quem está transmitindo.', 'sala-cheia': 'A transmissão atingiu o limite de espectadores.',
+      'sala-trancada': 'A sala foi trancada por quem está transmitindo: novas pessoas não podem entrar agora.' }[m.reason];
     return show($('gateMsg'), 'err', txt || 'Não foi possível entrar.');
   }
   if (m.type === 'viewer-accepted') {
@@ -90,6 +91,13 @@ async function onMessage(m) {
     try { p = await channel.open('h2v', m.data); }
     catch { return show($('gateMsg'), 'err', 'Não foi possível validar a transmissão: confira se o link está completo (com a parte depois do “#”).'); }
     return onHostSignal(p);
+  }
+  if (m.type === 'kicked') {
+    cleanup();
+    $('stage').classList.remove('on');
+    $('gate').style.display = '';
+    $('btnJoin').disabled = true;
+    return show($('gateMsg'), 'err', 'Você foi removido da transmissão por quem está transmitindo.');
   }
   if (m.type === 'host-left') {
     cleanup();
@@ -180,7 +188,7 @@ function startRelay() {
   if (!supportsWebCodecs()) {
     return show($('gateMsg'), 'err', 'Sua rede bloqueia a conexão direta e este navegador não suporta a retransmissão. Use Chrome, Edge ou Firefox atualizados.');
   }
-  receiver = new RelayReceiver({ mediaKey: keys.media, canvas: $('relayCanvas'), ws, audioCtx, onError: (e) => console.warn('[telalink relay]', e) });
+  receiver = new RelayReceiver({ mediaKey: keys.media, canvas: $('relayCanvas'), ws, audioCtx, volume: view.muted ? 0 : view.volume / 100, onError: (e) => console.warn('[telalink relay]', e) });
   setTransport('retransmissao');
   ws.json({ type: 'relay-subscribe' });
   sendSig({ kind: 'transport', mode: 'retransmissao' });
@@ -192,12 +200,12 @@ function showStage(kind) {
   $('stage').classList.add('on');
   $('remote').classList.toggle('hidden', kind !== 'video');
   $('relayCanvas').classList.toggle('hidden', kind !== 'canvas');
-  $('bar').classList.add('show');
-  setTimeout(() => $('bar').classList.remove('show'), 4000);
+  $('btnPip').classList.toggle('hidden', kind !== 'video' || !document.pictureInPictureEnabled);
+  flashBar();
+  applyVolume();
   if (kind === 'video') {
-    $('remote').play().catch(() => { $('remote').muted = true; $('remote').play().catch(() => {}); $('btnSound').classList.remove('hidden'); });
-  } else if (audioCtx?.state === 'suspended') {
-    $('btnSound').classList.remove('hidden');
+    // Navegadores bloqueiam som automatico sem clique: comeca mudo e avisa.
+    $('remote').play().catch(() => { view.muted = true; applyVolume(); $('remote').play().catch(() => {}); flashBar(8000); });
   }
 }
 
@@ -208,14 +216,53 @@ function cleanup() {
   setTransport('conectando');
 }
 
-$('btnSound').onclick = () => {
-  $('remote').muted = false;
-  $('remote').play().catch(() => {});
-  audioCtx?.resume();
-  $('btnSound').classList.add('hidden');
-};
+// ------------------------------------------------------------ controles
+const store = { get(k, d) { try { const v = localStorage.getItem('telalink.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('telalink.' + k, JSON.stringify(v)); } catch {} } };
+const FITS = [['contain', '⤢ Caber'], ['cover', '⤡ Preencher'], ['real', '1:1 Tamanho real']];
+const view = { volume: store.get('volume', 100), muted: false, fit: store.get('fit', 'contain') };
+window.__telalink.view = view;
 
+function applyVolume() {
+  const v = view.muted ? 0 : view.volume / 100;
+  $('remote').muted = view.muted || view.volume === 0;
+  $('remote').volume = Math.min(1, view.volume / 100);
+  receiver?.setVolume(v);
+  if (audioCtx?.state === 'suspended' && !view.muted) audioCtx.resume().catch(() => {});
+  $('btnMute').textContent = view.muted || view.volume === 0 ? '🔇' : '🔊';
+  $('volume').value = view.volume;
+}
+function applyFit() {
+  $('stage').classList.toggle('fit-cover', view.fit === 'cover');
+  $('stage').classList.toggle('fit-real', view.fit === 'real');
+  $('btnFit').textContent = FITS.find((f) => f[0] === view.fit)[1];
+}
+function flashBar(ms = 3000) {
+  $('bar').classList.add('show');
+  clearTimeout(flashBar.t); flashBar.t = setTimeout(() => $('bar').classList.remove('show'), ms);
+}
+
+$('btnMute').onclick = () => { view.muted = !(view.muted || view.volume === 0); if (!view.muted && view.volume === 0) view.volume = 50; applyVolume(); };
+$('volume').oninput = () => { view.volume = Number($('volume').value); view.muted = false; store.set('volume', view.volume); applyVolume(); };
+$('btnFit').onclick = () => {
+  const i = FITS.findIndex((f) => f[0] === view.fit);
+  view.fit = FITS[(i + 1) % FITS.length][0];
+  store.set('fit', view.fit);
+  applyFit();
+};
+$('btnPip').onclick = async () => {
+  try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await $('remote').requestPictureInPicture(); } catch {}
+};
 $('btnFull').onclick = () => {
   if (!document.fullscreenElement) $('stage').requestFullscreen?.();
   else document.exitFullscreen?.();
 };
+$('stage').addEventListener('mousemove', () => flashBar());
+$('stage').addEventListener('dblclick', () => $('btnFull').click());
+document.addEventListener('keydown', (e) => {
+  if (!$('stage').classList.contains('on') || e.target.tagName === 'INPUT') return;
+  if (e.key === 'f' || e.key === 'F') $('btnFull').click();
+  else if (e.key === 'm' || e.key === 'M') $('btnMute').click();
+  else if (e.key === 'a' || e.key === 'A') $('btnFit').click();
+});
+applyFit();

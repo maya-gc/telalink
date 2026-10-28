@@ -39,6 +39,8 @@
 | A13 | T/E | Injeção de código nas páginas | CSP estrita (`script-src 'self'`, sem inline), `textContent`, sem `innerHTML`/`eval`, `X-Frame-Options: DENY` | `server.test.js`, `arquivos.test.js` |
 | A14 | I | Leitura de arquivos fora de `public/` | Normalização de caminho + verificação de prefixo | `server.test.js` |
 | A15 | I | Exposição do PC na rede local | Servidor escuta só em `127.0.0.1` | `main.test.js` |
+| A17 | E | Visitante via túnel finge ser local (o túnel conecta de 127.0.0.1) | Túnel aponta para **porta externa dedicada**; conexões nela são sempre externas, independentemente do endereço | `acesso.test.js` › porta externa |
+| A18 | T | `ssh.exe` trocado ou servidor do túnel falsificado | `ssh` só com assinatura Microsoft válida; `StrictHostKeyChecking=accept-new` com `known_hosts` próprio (troca posterior da chave é recusada) | `tunnel.test.js` |
 | A16 | I | "Armazenar agora, decifrar depois" (quântico) | Modo **Máxima segurança**: só AES-256 com chave pré-compartilhada (Grover → ~128 bits efetivos). HTTPS até a Cloudflare usa troca de chaves híbrida pós-quântica nos navegadores atuais | `e2e.test.js` (modo máxima segurança) |
 
 ## Riscos residuais (aceitos e comunicados)
@@ -51,4 +53,6 @@
 | Metadados (quem conectou, quando, quanto tráfego) visíveis ao túnel/TURN | Inerente a qualquer intermediário | TURN próprio |
 | Link + PIN enviados pelo mesmo canal reduzem a proteção a um fator | Uso | Enviar PIN por outro canal (o painel orienta) |
 | Túnel rápido (`trycloudflare.com`) sem garantia de disponibilidade e às vezes bloqueado por filtros corporativos | Política do serviço | Túnel nomeado com domínio próprio |
+| localhost.run (túnel SSH padrão) é um serviço gratuito de terceiro que termina o HTTPS e vê metadados | Sem conta nem cartão exige um intermediário | Conteúdo segue cifrado de ponta a ponta (chave no `#`); usar Cloudflare ou domínio próprio se preferir |
+| Primeiro uso do SSH confia na chave do servidor sem verificação prévia (TOFU) | Serviço não publica *fingerprint* fixo | Mudanças posteriores da chave são recusadas |
 | Conteúdo protegido por DRM sai preto | Decisão do detentor dos direitos | Nenhuma (não contornar) |

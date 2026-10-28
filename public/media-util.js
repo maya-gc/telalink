@@ -100,3 +100,49 @@ export class BlackScreenDetector {
     return this.black !== was ? this.black : null; // retorna mudanca de estado ou null
   }
 }
+
+// ------------------------------------------------------------- qualidade
+// Predefinicoes simples para o usuario final. bitrate 0 = o navegador decide.
+export const QUALITY = {
+  auto:      { label: 'Automática',        maxH: 1080, bitrate: 0 },
+  alta:      { label: 'Alta (1080p)',      maxH: 1080, bitrate: 4_000_000 },
+  media:     { label: 'Média (720p)',      maxH: 720,  bitrate: 2_000_000 },
+  economica: { label: 'Econômica (480p)',  maxH: 480,  bitrate: 800_000 },
+};
+export const FPS_OPTIONS = [15, 30, 60];
+
+export function qualityPreset(name) { return QUALITY[name] || QUALITY.auto; }
+
+// Restricoes de captura para a tela (limita resolucao e quadros por segundo).
+export function captureConstraints(name, fps = 30) {
+  const q = qualityPreset(name);
+  const f = FPS_OPTIONS.includes(fps) ? fps : 30;
+  return { width: { max: Math.round((q.maxH * 16) / 9) }, height: { max: q.maxH }, frameRate: { ideal: f, max: f } };
+}
+
+// Parametros do envio WebRTC: teto de banda, quadros e reducao de escala.
+export function senderEncoding(name, fps = 30, sourceHeight = 0) {
+  const q = qualityPreset(name);
+  const enc = { maxFramerate: FPS_OPTIONS.includes(fps) ? fps : 30 };
+  if (q.bitrate) enc.maxBitrate = q.bitrate;
+  enc.scaleResolutionDownBy = sourceHeight > q.maxH ? Number((sourceHeight / q.maxH).toFixed(3)) : 1;
+  return enc;
+}
+
+// Volume em % (0..200) -> ganho linear, ja considerando mudo e pausa.
+export function gainFor({ volume = 100, muted = false, paused = false } = {}) {
+  if (muted || paused) return 0;
+  return Math.max(0, Math.min(200, Number(volume) || 0)) / 100;
+}
+
+// Encaixa uma imagem (w x h) numa area (W x H) sem distorcer. Retorna x, y, w, h.
+export function fitRect(w, h, W, H) {
+  const s = Math.min(W / w, H / h);
+  const dw = Math.round(w * s), dh = Math.round(h * s);
+  return { x: Math.round((W - dw) / 2), y: Math.round((H - dh) / 2), w: dw, h: dh };
+}
+
+// Texto do convite que o usuario cola no WhatsApp/e-mail.
+export function inviteText(link, pin) {
+  return `Assista minha tela pelo TelaLink:\n${link}\nPIN: ${pin}`;
+}

@@ -1,25 +1,47 @@
 # TelaLink
 
-Compartilhe sua **tela, janela ou aba, com áudio**, com pessoas em **qualquer rede** (casa, empresa, 4G, VPN), enviando só um **link + PIN**. Tudo é **criptografado de ponta a ponta**: nem o servidor do TelaLink nem a Cloudflare conseguem ver sua tela.
+Compartilhe sua **tela, janela ou aba, com áudio**, com pessoas em **qualquer rede** (casa, empresa, 4G, VPN), enviando só um **link + PIN**. Tudo é **criptografado de ponta a ponta**: nem o servidor do TelaLink nem o serviço de link externo conseguem ver sua tela.
 
 [![testes](../../actions/workflows/testes.yml/badge.svg)](../../actions/workflows/testes.yml)
 [![laboratório de redes](../../actions/workflows/laboratorio.yml/badge.svg)](../../actions/workflows/laboratorio.yml)
 
 ## Uso no Windows
 
-1. Instale o **Node.js LTS** uma vez: https://nodejs.org (ou `winget install --id OpenJS.NodeJS.LTS -e`).
-2. Dê duplo-clique em **`Iniciar.bat`**. Na primeira vez ele oferece instalar o `cloudflared` oficial pelo **winget** (instalador da Microsoft), necessário para o link externo.
-3. Espere **"Link externo pronto"** no painel, clique em **Iniciar transmissão** e envie o **link** e o **PIN** (de preferência por canais diferentes).
+Instale o **Node.js LTS** uma vez (https://nodejs.org ou `winget install --id OpenJS.NodeJS.LTS -e`). Depois, são **3 cliques**:
+
+1. Duplo-clique em **`Iniciar.bat`** — o painel abre sozinho.
+2. Clique em **Minha tela** (ou **Imagens**) e escolha o que mostrar.
+3. O **convite (link + PIN) já vai copiado** — é só colar no WhatsApp ou e-mail.
+
+Não precisa instalar mais nada: o link externo usa o **SSH que já vem no Windows 10/11** (serviço gratuito localhost.run). Se você tiver o `cloudflared` instalado, ele é usado automaticamente (dá para escolher em ⚙ Configurações).
 
 A janela preta fica aberta de propósito: ela é o servidor.
 
+### Durante a transmissão
+
+| Controle | O que faz |
+|---|---|
+| **Pausar** | Quem assiste vê "Transmissão pausada" (sem imagem nem som seus) |
+| **Som / volume** | Liga/desliga e ajusta de 0 a 200% o som enviado |
+| **Qualidade** | Automática, Alta (1080p), Média (720p) ou Econômica (480p) — muda na hora |
+| **Trocar** | Troca de tela/janela ou passa para imagens, sem derrubar ninguém |
+| **Imagens** | Mostre fotos/prints como slides (◀ ▶), adicione mais a qualquer momento |
+| **Trancar sala** | Ninguém novo entra; quem já está continua |
+| **Remover** | Tira uma pessoa da transmissão |
+
+Quem assiste tem: volume e mudo, **Caber / Preencher / Tamanho real**, janela **flutuante** (picture-in-picture) e **tela cheia** (teclas F, M, A; duplo-clique = tela cheia). As preferências ficam guardadas no navegador dela.
+
+### ⚙ Configurações (opcional)
+
+Tudo tem padrão bom; só abra se quiser mudar: qualidade, quadros por segundo (15/30/60), tipo de conteúdo (vídeo × texto), som e volume inicial, segurança (Padrão × Máxima) e tipo de link externo (automático, Cloudflare, SSH ou desligado). As opções avançadas de TURN ficam em **Opções avançadas de conexão**.
+
 | Arquivo | O que faz |
 |---|---|
-| `Iniciar.bat` | Autoteste, verifica/instala o cloudflared, sobe o servidor e abre o painel |
+| `Iniciar.bat` | Autoteste, sobe o servidor, abre o painel e o link externo |
 | `Testar.bat` | Roda a bateria completa de testes |
 | `Diagnostico.bat` | Mostra o que está faltando se algo der errado |
 
-macOS/Linux: `./iniciar-mac-linux.sh` (instale o `cloudflared` pelo gerenciador de pacotes).
+macOS/Linux: `./iniciar-mac-linux.sh` (usa o `ssh` do sistema ou o `cloudflared`, se instalado).
 
 ## Como a imagem chega a quem assiste
 
@@ -41,7 +63,8 @@ O modo **Máxima segurança** usa sempre a retransmissão cifrada (ver abaixo).
 - **PIN** de 6 dígitos guardado como HMAC-SHA-512 com chave por sala; bloqueio após 10 erros por sala e 30 por IP.
 - **Painel só no seu PC**: quem vem pelo link só consegue assistir. Servidor escuta apenas em `127.0.0.1`.
 - **Configurações fora do projeto**, com tokens protegidos pelo **DPAPI** do Windows.
-- **Nenhum executável embutido**: o `cloudflared` vem do winget e só é usado se a **assinatura digital da Cloudflare, Inc.** for válida.
+- **Nenhum executável embutido**: o link externo usa o `ssh.exe` do Windows (só com **assinatura da Microsoft**) ou o `cloudflared` (só com **assinatura da Cloudflare, Inc.**).
+- **Porta separada para o link externo**: o túnel só alcança uma porta dedicada, que nunca serve o painel nem as configurações.
 
 Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md) e [`SECURITY.md`](SECURITY.md).
 
@@ -50,14 +73,14 @@ Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md) e [`SECURITY.
 - **Vídeos (YouTube etc.) em uma “Janela”** podem sair pretos por causa da aceleração de hardware do navegador. Compartilhe a **“Aba”** do vídeo (também leva o áudio) ou desligue “Usar aceleração de hardware” no navegador. O painel detecta a tela preta e avisa.
 - **Filmes pagos/protegidos (DRM)** saem pretos de propósito, por decisão do site. O TelaLink não contorna essa proteção.
 
-## Conexão e segurança (configurações)
+## Opções avançadas de conexão (TURN)
 
-No painel, **Conexão e segurança** permite escolher o modo padrão e, opcionalmente, um servidor TURN (Cloudflare, coturn próprio ou usuário/senha), com **trava de consumo mensal**. Cada opção tem descrição e nível de segurança na própria tela.
+Em ⚙ Configurações → **Opções avançadas de conexão** é possível escolher o modo padrão e, opcionalmente, um servidor TURN (Cloudflare, coturn próprio ou usuário/senha), com **trava de consumo mensal**. Cada opção tem descrição e nível de segurança na própria tela.
 
 ## Testes
 
 ```
-npm test                 # 160+ testes: unidade, integração, segurança, E2E com navegador real
+npm test                 # 200+ testes: unidade, integração, segurança, E2E com navegador real
 npm run test:coverage    # idem, com cobertura mínima obrigatória
 npm run lab              # laboratório de redes isoladas (Linux, root)
 ```

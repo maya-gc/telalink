@@ -24,8 +24,8 @@ export function fitSize(w, h, maxW = MAX_W, maxH = MAX_H) {
 
 // ----------------------------------------------------------------- HOST
 export class RelaySender {
-  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 2_500_000, onError = () => {} }) {
-    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, onError });
+  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 2_500_000, maxH = MAX_H, fps = 30, onError = () => {} }) {
+    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, onError });
     this.running = false;
     this.vseq = 0; this.aseq = 0;
     this.forceKey = true;
@@ -47,6 +47,22 @@ export class RelaySender {
   setBitrate(bps) {
     this.bitrate = bps;
     if (this.venc && this.venc.state === 'configured') { this.vcfg = null; this.forceKey = true; }
+  }
+
+  // Muda resolucao maxima/banda/quadros durante a transmissao.
+  setQuality({ maxH = this.maxH, bitrate = this.bitrate, fps = this.fps } = {}) {
+    this.maxH = maxH; this.fps = fps;
+    this.setBitrate(bitrate);
+  }
+
+  // Troca a fonte de video (tela, imagem, pausa) sem parar a retransmissao.
+  replaceVideoTrack(track) {
+    if (!this.running) return;
+    try { this.vreader?.cancel(); } catch {}
+    this.vreader = null;
+    if (this.rvfcHandle && this.previewVideo?.cancelVideoFrameCallback) this.previewVideo.cancelVideoFrameCallback(this.rvfcHandle);
+    this.forceKey = true;
+    if (track) this._attachVideo(track);
   }
 
   stop() {
@@ -84,17 +100,23 @@ export class RelaySender {
       error: (e) => { this.vcfg = null; this.forceKey = true; this.onError(e); },
     });
 
+    this._attachVideo(track);
+  }
+
+  _attachVideo(track) {
     if (typeof globalThis.MediaStreamTrackProcessor === 'function') {
       const proc = new MediaStreamTrackProcessor({ track });
-      this.vreader = proc.readable.getReader();
+      const reader = proc.readable.getReader();
+      this.vreader = reader;
       const pump = async () => {
-        while (this.running) {
-          const { value: frame, done } = await this.vreader.read();
+        while (this.running && this.vreader === reader) {
+          const { value: frame, done } = await reader.read();
           if (done) break;
+          if (this.vreader !== reader) { frame.close(); break; }
           this._encodeFrame(frame);
         }
       };
-      pump().catch((e) => this.onError(e));
+      pump().catch((e) => { if (this.vreader === reader) this.onError(e); });
     } else if (this.previewVideo?.requestVideoFrameCallback) {
       // Navegadores sem MediaStreamTrackProcessor: copia do <video> de pre-visualizacao.
       const tick = () => {
@@ -111,9 +133,13 @@ export class RelaySender {
   _encodeFrame(frame) {
     try {
       if (!this.running || !this.venc || this.venc.state === 'closed') return;
-      const { w, h } = fitSize(frame.displayWidth, frame.displayHeight);
+      const { w, h } = fitSize(frame.displayWidth, frame.displayHeight, Math.round((this.maxH * 16) / 9), this.maxH);
+      // Limita quadros por segundo conforme a qualidade escolhida.
+      const nowMs = performance.now();
+      if (!this.forceKey && this.lastFrameAt && nowMs - this.lastFrameAt < 1000 / this.fps - 4) return;
+      this.lastFrameAt = nowMs;
       if (!this.vcfg || this.vcfg.width !== w || this.vcfg.height !== h) {
-        this.vcfg = { codec: 'vp8', width: w, height: h, bitrate: this.bitrate, framerate: 30, latencyMode: 'realtime' };
+        this.vcfg = { codec: 'vp8', width: w, height: h, bitrate: this.bitrate, framerate: this.fps, latencyMode: 'realtime' };
         this.venc.configure(this.vcfg);
         this.forceKey = true;
       }
@@ -176,8 +202,13 @@ export class RelaySender {
 
 // ----------------------------------------------------------------- ESPECTADOR
 export class RelayReceiver {
-  constructor({ mediaKey, canvas, ws, audioCtx = null, onError = () => {} }) {
+  constructor({ mediaKey, canvas, ws, audioCtx = null, volume = 1, onError = () => {} }) {
     Object.assign(this, { mediaKey, canvas, ws, audioCtx, onError });
+    if (audioCtx) {
+      this.gain = audioCtx.createGain();
+      this.gain.gain.value = volume;
+      this.gain.connect(audioCtx.destination);
+    }
     this.ctx2d = canvas.getContext('2d');
     this.lastSeq = { [KIND_VIDEO]: -1, [KIND_AUDIO]: -1 };
     this.gotKey = false;
@@ -254,7 +285,7 @@ export class RelayReceiver {
     }
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(ctx.destination);
+    src.connect(this.gain || ctx.destination);
     const now = ctx.currentTime;
     // Pequeno buffer (~150 ms) absorve variacoes da rede sem atrasar demais.
     if (this.playAt < now + 0.03 || this.playAt > now + 0.6) this.playAt = now + 0.15;
@@ -262,6 +293,8 @@ export class RelayReceiver {
     this.playAt += buf.duration;
     this.stats.audioDecoded++;
   }
+
+  setVolume(v) { if (this.gain) this.gain.gain.value = Math.max(0, Math.min(1, v)); }
 
   close() {
     for (const d of [this.vdec, this.adec]) try { if (d && d.state !== 'closed') d.close(); } catch {}

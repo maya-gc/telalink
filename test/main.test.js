@@ -55,7 +55,8 @@ test('PUBLIC_URL: endereco publico fixo e entregue ao painel', async (t) => {
   const p = run({ PUBLIC_URL: 'https://tela.exemplo.com.br/' }, t);
   const [, port] = await p.waitFor(/localhost:(\d+)\//);
   const info = await (await fetch(`http://127.0.0.1:${port}/api/info`)).json();
-  assert.deepEqual(info.tunnel, { status: 'on', url: 'https://tela.exemplo.com.br', error: null });
+  assert.equal(info.tunnel.status, 'on');
+  assert.equal(info.tunnel.url, 'https://tela.exemplo.com.br');
 });
 
 test('com cloudflared: mostra o link externo assim que fica pronto',
@@ -66,15 +67,34 @@ test('com cloudflared: mostra o link externo assim que fica pronto',
     writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" ok "$@"\n`);
     chmodSync(wrapper, 0o755);
     const p = run({ CLOUDFLARED_PATH: wrapper }, t);
-    await p.waitFor(/Link externo ATIVO:\s+https:\/\/verde-gato-azul-teste\.trycloudflare\.com/);
+    await p.waitFor(/Link externo ATIVO \(Cloudflare\):\s+https:\/\/verde-gato-azul-teste\.trycloudflare\.com/);
   });
 
-test('sem cloudflared: avisa como instalar e continua funcionando localmente', async (t) => {
-  const p = run({ CLOUDFLARED_PATH: '', PATH: '' }, t);
+test('escolhendo Cloudflare sem ele instalado: avisa como instalar e continua funcionando localmente', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tl-set-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ tunnel: 'cloudflare' }));
+  const p = run({ CLOUDFLARED_PATH: '', PATH: '', TELALINK_DATA_DIR: dir }, t);
   const [, port] = await p.waitFor(/localhost:(\d+)\//);
-  await p.waitFor(/cloudflared nao instalado|assinatura digital nao confere/);
+  await p.waitFor(/Cloudflare nao instalado|assinatura digital nao confere/);
   assert.equal((await fetch(`http://127.0.0.1:${port}/health`)).status, 200);
 });
+
+test('link externo via SSH (sem instalar nada): mostra o endereco do tunel e ignora links do banner',
+  { skip: process.platform === 'win32' && 'wrapper de shell (no Windows o ssh real e verificado por assinatura)' }, async (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'tl-ssh-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ tunnel: 'ssh' }));
+    const wrapper = join(dir, 'ssh');
+    writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${join(ROOT, 'test', 'fixtures', 'fake-ssh.js')}" "$@"\n`);
+    chmodSync(wrapper, 0o755);
+    const p = run({ TELALINK_DATA_DIR: dir, TELALINK_SSH_PATH: wrapper }, t);
+    const [, port] = await p.waitFor(/localhost:(\d+)\//);
+    await p.waitFor(/Link externo ATIVO \(SSH \(localhost\.run\)\):\s+https:\/\/f00dcafe1234ab\.lhr\.life/);
+    const info = await (await fetch(`http://127.0.0.1:${port}/api/info`)).json();
+    assert.equal(info.tunnel.provider, 'ssh');
+    assert.equal(info.tunnel.url, 'https://f00dcafe1234ab.lhr.life');
+  });
 
 test('porta ocupada: mensagem clara e codigo de erro', async (t) => {
   const a = run({ TUNNEL: '0' }, t);

@@ -15,6 +15,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export const PROVIDERS = ['none', 'cloudflare', 'coturn', 'static'];
+export const QUALITIES = ['auto', 'alta', 'media', 'economica'];
 export const SECRET_FIELDS = { cloudflare: 'apiToken', coturn: 'secret', static: 'credential' };
 
 export const DEFAULTS = Object.freeze({
@@ -27,6 +28,8 @@ export const DEFAULTS = Object.freeze({
     static: { urls: '', username: '', credential: null },
   },
   capGB: 800,                       // trava de consumo mensal estimado de TURN (null = sem trava)
+  tunnel: 'auto',                   // link externo: auto | cloudflare | ssh | off
+  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100 },
   usage: { month: '', bytes: 0 },
 });
 
@@ -99,6 +102,21 @@ export function applyUpdate(current, input, { protectFn = protect } = {}) {
     }
     next.capGB = input.capGB;
   }
+  if (input.tunnel !== undefined) {
+    if (!['auto', 'cloudflare', 'ssh', 'off'].includes(input.tunnel)) throw new Error('metodo de link externo invalido');
+    next.tunnel = input.tunnel;
+  }
+  if (input.prefs !== undefined) {
+    const p = input.prefs;
+    if (!p || typeof p !== 'object') throw new Error('preferencias invalidas');
+    const out = { ...(next.prefs || DEFAULTS.prefs) };
+    if (p.quality !== undefined) { if (!QUALITIES.includes(p.quality)) throw new Error('qualidade invalida'); out.quality = p.quality; }
+    if (p.fps !== undefined) { if (![15, 30, 60].includes(p.fps)) throw new Error('quadros por segundo invalidos'); out.fps = p.fps; }
+    if (p.hint !== undefined) { if (!['motion', 'detail'].includes(p.hint)) throw new Error('tipo de conteudo invalido'); out.hint = p.hint; }
+    if (p.audio !== undefined) { if (typeof p.audio !== 'boolean') throw new Error('audio invalido'); out.audio = p.audio; }
+    if (p.volume !== undefined) { if (!(Number.isInteger(p.volume) && p.volume >= 0 && p.volume <= 200)) throw new Error('volume deve ser de 0 a 200'); out.volume = p.volume; }
+    next.prefs = out;
+  }
   const t = input.turn;
   if (t !== undefined) {
     if (!t || !PROVIDERS.includes(t.provider)) throw new Error('provedor invalido');
@@ -139,7 +157,7 @@ export class SettingsStore {
     if (existsSync(this.file)) {
       try {
         const raw = JSON.parse(readFileSync(this.file, 'utf8'));
-        this.data = { ...structuredClone(DEFAULTS), ...raw, turn: { ...structuredClone(DEFAULTS.turn), ...raw.turn } };
+        this.data = { ...structuredClone(DEFAULTS), ...raw, turn: { ...structuredClone(DEFAULTS.turn), ...raw.turn }, prefs: { ...DEFAULTS.prefs, ...raw.prefs } };
       } catch { /* arquivo corrompido: volta ao padrao sem derrubar o programa */ }
     }
     return this;

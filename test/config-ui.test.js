@@ -55,10 +55,11 @@ async function testarConexao(page) {
 }
 
 describe('Tela Conexao e seguranca (navegador real)', { skip, timeout: 120_000 }, () => {
-  test('painel mostra o quadro "Conexao e seguranca" e o botao leva a tela de cadastro', async () => {
+  test('configuracoes do painel mostram o resumo de conexao e levam a tela de cadastro TURN', async () => {
     const page = await (await browser.newContext()).newPage();
     await page.goto(app.base + '/');
-    await page.waitForFunction(() => document.getElementById('sumTurn').textContent !== '...');
+    await page.click('#btnSettings');
+    await page.waitForFunction(() => document.getElementById('sumTurn').textContent !== '…');
     assert.match(await page.textContent('#sumTurn'), /Nenhum/);
     await page.click('#btnConfig');
     await page.waitForURL(/\/config$/);
@@ -159,6 +160,8 @@ describe('Tela Conexao e seguranca (navegador real)', { skip, timeout: 120_000 }
     settings.addUsage(2e9); // simula 2 GB usados
     const panel = await (await browser.newContext()).newPage();
     await panel.goto(app.base + '/');
+    await panel.waitForFunction(() => window.__telalinkReady !== false && document.getElementById('summary').textContent.includes('Máxima'));
+    await panel.click('#btnSettings');
     await panel.waitForFunction(() => /limite atingido/.test(document.getElementById('sumUsage').textContent));
     assert.match(await panel.textContent('#sumMode'), /Máxima segurança/);
     assert.equal(await panel.isChecked('input[name=policy][value=relay]'), true, 'modo padrao ja vem marcado');

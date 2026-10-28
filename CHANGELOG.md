@@ -1,5 +1,22 @@
 # Histórico de versões
 
+## 2.2.0 — 2026-10-28
+
+### Novo
+- **Transmitir em 3 cliques**: abrir, escolher **Minha tela** ou **Imagens**, e o convite (link + PIN) já vai copiado.
+- **Link externo sem instalar nada**: túnel SSH (localhost.run) com o `ssh.exe` do Windows, verificado pela assinatura da Microsoft. O Cloudflare continua disponível e é preferido quando instalado.
+- **Controles ao vivo**: pausar, som/volume (0–200%), qualidade (Automática/Alta/Média/Econômica), trocar fonte sem derrubar ninguém, trancar sala e remover pessoa.
+- **Modo imagens**: fotos e prints como slides, com ◀ ▶ e adição a qualquer momento.
+- **Quem assiste**: volume, mudo, Caber/Preencher/Tamanho real, janela flutuante, tela cheia e atalhos; preferências lembradas.
+- **⚙ Configurações** simples (qualidade, quadros, tipo de conteúdo, som, segurança, link externo); TURN foi para "Opções avançadas".
+
+### Segurança
+- O túnel aponta para uma **porta externa dedicada**; tudo que chega por ela é tratado como externo (painel, configurações e papel de host bloqueados).
+- `ssh` só é usado com assinatura Microsoft válida; chave do servidor gravada no primeiro uso (`accept-new`) em arquivo próprio.
+
+### Corrigido
+- Áudio da retransmissão em PCs com 44,1 kHz (agora o áudio é gerado a 48 kHz, aceito pelo Opus).
+
 ## 2.1.0 — 2026-10-28
 
 ### Novo

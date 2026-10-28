@@ -19,6 +19,12 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-09 | Aviso de tela preta com orientação | `media.test.js` › tela preta |
 | RF-10 | Painel mostra o caminho usado por cada espectador | `e2e.test.js` (host vê "retransmissao") |
 | RF-11 | Painel mostra resumo de conexão (modo, TURN, consumo) com atalho para configurar | `config-ui.test.js` |
+| RF-12 | Transmitir em 3 cliques, com convite (link + PIN) copiado automaticamente | `controles.test.js` › 3 cliques |
+| RF-13 | Pausar, volume/mudo e qualidade ajustáveis ao vivo, sem reconectar quem assiste | `controles.test.js`, `media.test.js` › qualidade/volume |
+| RF-14 | Transmitir imagens como slides e trocar de fonte durante a transmissão | `controles.test.js` › imagens, trocar |
+| RF-15 | Trancar sala e remover espectador | `server.test.js` › kick/lock, `controles.test.js` |
+| RF-16 | Controles de quem assiste (volume, encaixe, flutuante, tela cheia) com preferências guardadas | `controles.test.js` › espectador |
+| RF-17 | Link externo sem instalar nada (SSH do sistema), com escolha automática do provedor | `tunnel-manager.test.js`, `tunnel.test.js` › SSH, `main.test.js` › SSH |
 
 ## Segurança
 
@@ -39,6 +45,8 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RS-13 | Bloqueio de path traversal | `server.test.js` |
 | RS-14 | Servidor escuta só em 127.0.0.1 | `main.test.js` |
 | RS-15 | Espectador não pode enviar mídia; host não pode enviar lixo | `relay.test.js` |
+| RS-16 | Túnel só alcança a porta externa dedicada; nela tudo é externo | `acesso.test.js` › porta externa |
+| RS-17 | `ssh` só com assinatura Microsoft válida; chave do servidor fixada no primeiro uso | `tunnel.test.js` (inclui verificação real no Windows) |
 
 ## Desempenho e robustez
 
@@ -56,7 +64,7 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | ID | Requisito | Verificação |
 |---|---|---|
 | RU-01 | Janela do `Iniciar.bat` nunca fecha sozinha; mensagens visíveis | `arquivos.test.js` (CRLF, ASCII, sem `<>` em `echo`, `cmd /k`) |
-| RU-02 | Instalação guiada do `cloudflared` pelo winget, com consentimento | `Iniciar.bat` (revisão) + CI Windows |
+| RU-02 | Nenhuma instalação extra para o link externo (SSH do sistema; Cloudflare opcional) | `tunnel-manager.test.js`, `selfcheck.js` |
 | RU-03 | Porta ocupada e cloudflared ausente geram mensagem clara | `main.test.js` |
 | RO-01 | Autoteste antes de iniciar | `selfcheck.js` (CI) |
 | RO-02 | Testes em Windows, macOS e Linux a cada mudança; cobertura mínima | `.github/workflows/testes.yml` |

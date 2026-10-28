@@ -5,10 +5,10 @@
 | Nível | Onde | O que cobre | Quando roda |
 |---|---|---|---|
 | Autoteste | `scripts/selfcheck.js` | Servidor, sala, WebSocket, bloqueio externo, criptografia | Toda vez que o `Iniciar.bat` abre |
-| Unidade | `crypto`, `media`, `settings`, `turn`, `ws-lite`, `lab` | Funções isoladas, casos de borda, entradas maliciosas | Cada envio (CI) |
+| Unidade | `crypto`, `media`, `settings`, `turn`, `ws-lite`, `tunnel-manager`, `lab` | Funções isoladas, casos de borda, entradas maliciosas | Cada envio (CI) |
 | Integração | `server`, `acesso`, `relay`, `tunnel`, `main` | Servidor real em porta aleatória, WebSocket real, processo real | Cada envio (CI) |
 | Estático | `arquivos` | `.bat` (CRLF/ASCII/redirecionamentos), sintaxe, CSP, IDs do HTML | Cada envio (CI) |
-| E2E | `e2e`, `proxy-https`, `config-ui` | Chromium real: direta, retransmissão, máxima segurança, chave ausente/adulterada, caminho https como na Cloudflare, cadastro de cada método TURN contra um servidor TURN de teste com autenticação real | Cada envio (CI, 3 sistemas) |
+| E2E | `e2e`, `proxy-https`, `config-ui`, `controles` | Chromium real: 3 cliques, pausar, volume, qualidade, imagens, trocar fonte, trancar/remover, controles de quem assiste, direta, retransmissão, máxima segurança, chave ausente/adulterada, caminho https como na Cloudflare, cadastro de cada método TURN contra um servidor TURN de teste com autenticação real | Cada envio (CI, 3 sistemas) |
 | Rede | `lab/` | Transmissor e espectadores em redes isoladas com NAT/firewall reais | Envio na `main`, PR e semanal |
 | Manual | Este documento | Rede de celular real, outro PC | Antes de cada versão |
 
@@ -38,12 +38,13 @@ Rodar localmente (Linux, root): `npm run lab`.
 
 Leva 5 minutos e usa só o seu celular:
 
-1. No PC, rode o `Iniciar.bat` e inicie uma transmissão de uma **aba do YouTube** com áudio.
+1. No PC, rode o `Iniciar.bat`, confira **Link externo pronto** (SSH ou Cloudflare) e clique em **Minha tela** escolhendo uma **aba do YouTube** com áudio.
 2. No celular, **desligue o Wi-Fi** (fica só no 4G/5G) e abra o link; digite o PIN.
 3. Confira: imagem e som chegam; a barra superior mostra o caminho usado.
 4. Repita com uma **VPN** ligada no celular.
 5. Repita com o modo **Máxima segurança**.
 6. No painel, confira que cada espectador aparece com o caminho certo.
-7. Encerre a transmissão: o celular deve mostrar "A transmissão foi encerrada".
+7. Teste **Pausar**, o **volume** e **Imagens**; no celular, **Caber/Preencher** e **tela cheia**.
+8. Encerre a transmissão: o celular deve mostrar "A transmissão foi encerrada".
 
 Registre o resultado em `CHANGELOG.md` na versão correspondente.

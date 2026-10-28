@@ -3,16 +3,18 @@ TELALINK - uso rapido
 
 1. Precisa do Node.js instalado (uma vez so): https://nodejs.org
 
-2. De duplo-clique em  Iniciar.bat
-   - Na primeira vez ele oferece instalar o cloudflared oficial pelo
-     winget (instalador da Microsoft). Responda S.
+2. De duplo-clique em  Iniciar.bat  (clique 1)
    - A janela preta FICA ABERTA: ela e o servidor. Fechou, parou.
+   - Nao precisa instalar mais nada: o link externo usa o SSH que
+     ja vem no Windows 10/11.
 
-3. No painel, espere "Link externo pronto", clique em
-   "Iniciar transmissao" e escolha a tela, janela ou aba.
+3. No painel, clique em "Minha tela" ou "Imagens" (clique 2) e
+   escolha o que mostrar (clique 3).
 
-4. Envie o LINK e o PIN, de preferencia por canais diferentes
-   (ex.: link por e-mail, PIN por mensagem).
+4. O convite (link + PIN) ja fica copiado: cole no WhatsApp ou
+   e-mail. Durante a transmissao: Pausar, volume, Qualidade,
+   Trocar, Trancar sala e Remover pessoa.
+   Ajustes opcionais ficam em "Configuracoes".
 
 Video do YouTube saindo preto? Compartilhe a "Aba" do video em vez
 da "Janela". Filmes protegidos (DRM) sempre saem pretos.

@@ -19,7 +19,11 @@
     opacity: 0; transition: opacity .2s;
   }
   .stage:hover .bar, .bar.show { opacity: 1; }
-  .bar button { padding: 6px 14px; background: #ffffff22; }
+  .bar button { padding: 6px 12px; background: #ffffff22; }
+  .bar .controls { gap: 6px; }
+  .bar input[type=range] { width: 110px; }
+  .stage.fit-cover video, .stage.fit-cover canvas { object-fit: cover; }
+  .stage.fit-real video, .stage.fit-real canvas { object-fit: none; }
   .lock { color: var(--ok); }
 </style>
 </head>
@@ -35,9 +39,12 @@
   <div class="stage" id="stage">
     <div class="bar" id="bar">
       <span><span class="lock">🔒</span> Criptografado de ponta a ponta · <span id="transportTxt">Conectando...</span></span>
-      <span class="row">
-        <button id="btnSound" class="hidden">🔊 Ativar som</button>
-        <button id="btnFull">Tela cheia</button>
+      <span class="row controls" role="toolbar" aria-label="Controles">
+        <button id="btnMute" title="Ligar/desligar som (M)">🔊</button>
+        <input id="volume" type="range" min="0" max="100" step="5" value="100" aria-label="Volume" />
+        <button id="btnFit" title="Ajuste da imagem (A)">⤢ Caber</button>
+        <button id="btnPip" class="hidden" title="Janela flutuante">⧉ Flutuante</button>
+        <button id="btnFull" title="Tela cheia (F)">⛶ Tela cheia</button>
       </span>
     </div>
     <video id="remote" autoplay playsinline></video>

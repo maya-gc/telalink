@@ -139,7 +139,8 @@ class WSConn extends EventEmitter {
 }
 
 // Liga o "upgrade" HTTP ao WebSocket e emite 'connection' (conn, req).
-export function attachWebSocket(httpServer) {
+export function attachWebSocket(httpServers) {
+  const list = Array.isArray(httpServers) ? httpServers : [httpServers];
   const emitter = new EventEmitter();
   emitter.clients = new Set();
   emitter.terminateAll = () => { for (const c of emitter.clients) c.terminate(); };
@@ -147,7 +148,7 @@ export function attachWebSocket(httpServer) {
     emitter.clients.add(c);
     c.on('close', () => emitter.clients.delete(c));
   });
-  httpServer.on('upgrade', (req, socket) => {
+  const onUpgrade = (req, socket) => {
     const key = req.headers['sec-websocket-key'];
     if (!key || (req.headers.upgrade || '').toLowerCase() !== 'websocket') {
       socket.destroy(); return;
@@ -162,6 +163,7 @@ export function attachWebSocket(httpServer) {
       `Sec-WebSocket-Accept: ${acceptKey(key)}\r\n\r\n`
     );
     emitter.emit('connection', new WSConn(socket), req);
-  });
+  };
+  for (const srv of list) srv.on('upgrade', onUpgrade);
   return emitter;
 }

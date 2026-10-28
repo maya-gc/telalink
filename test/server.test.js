@@ -233,3 +233,43 @@ describe('Sinalizacao', () => {
     host.close(); viewers.forEach(({ v }) => v.close());
   });
 });
+
+describe('Controle da sala pelo host', () => {
+  test('remover espectador: ele e avisado e desconectado; outros continuam', async () => {
+    const { room, host, viewer: a, viewerId: idA } = await roomWithViewer(app);
+    const b = wsClient(app.ws); await b.opened;
+    b.json({ type: 'viewer-join', roomId: room.roomId, pin: room.pin });
+    await b.next(); await host.next();
+    host.json({ type: 'kick', viewerId: idA });
+    assert.equal((await a.next()).type, 'kicked');
+    await a.closed;
+    assert.deepEqual(await host.next(), { type: 'viewer-left', viewerId: idA });
+    assert.equal(app.rooms.get(room.roomId).viewers.has(idA), false);
+    await b.nothing();
+    host.close(); b.close();
+  });
+
+  test('trancar a sala: ninguem novo entra, nem com o PIN certo; destrancar libera', async () => {
+    const { room, host, viewer } = await roomWithViewer(app);
+    host.json({ type: 'lock', locked: true });
+    assert.deepEqual(await host.next(), { type: 'locked', locked: true });
+    const late = wsClient(app.ws); await late.opened;
+    late.json({ type: 'viewer-join', roomId: room.roomId, pin: room.pin });
+    assert.equal((await late.next()).reason, 'sala-trancada');
+    host.json({ type: 'lock', locked: false });
+    await host.next();
+    late.json({ type: 'viewer-join', roomId: room.roomId, pin: room.pin });
+    assert.equal((await late.next()).type, 'viewer-accepted');
+    host.close(); viewer.close(); late.close();
+  });
+
+  test('espectador nao pode remover ninguem nem trancar a sala', async () => {
+    const { room, host, viewer, viewerId } = await roomWithViewer(app);
+    viewer.json({ type: 'lock', locked: true });
+    viewer.json({ type: 'kick', viewerId });
+    await host.nothing();
+    assert.equal(app.rooms.get(room.roomId).locked, undefined);
+    assert.ok(app.rooms.get(room.roomId).viewers.has(viewerId));
+    host.close(); viewer.close();
+  });
+});

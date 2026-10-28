@@ -28,7 +28,7 @@ export function windowsCandidates(env = process.env) {
 
 // Confere a assinatura Authenticode via PowerShell (recurso nativo do Windows).
 // O caminho vai por variavel de ambiente: nada de montar comando com texto externo.
-export function verifyAuthenticode(file, run = spawnSync) {
+export function verifyAuthenticode(file, run = spawnSync, { signer = SIGNER_RE, signerName = 'Cloudflare' } = {}) {
   const script = '$s=Get-AuthenticodeSignature -LiteralPath $env:TL_FILE; [Console]::Out.Write("$($s.Status)|$($s.SignerCertificate.Subject)")';
   const r = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
     env: { ...process.env, TL_FILE: file }, encoding: 'utf8', windowsHide: true, timeout: 20_000,
@@ -36,7 +36,7 @@ export function verifyAuthenticode(file, run = spawnSync) {
   if (r.status !== 0) return { valid: false, reason: 'nao foi possivel verificar a assinatura' };
   const [status, subject = ''] = String(r.stdout).split('|');
   if (status !== 'Valid') return { valid: false, reason: `assinatura ${status || 'ausente'}` };
-  if (!SIGNER_RE.test(subject)) return { valid: false, reason: 'assinado, mas nao pela Cloudflare' };
+  if (!signer.test(subject)) return { valid: false, reason: `assinado, mas nao pela ${signerName}` };
   return { valid: true, signer: 'Cloudflare, Inc.' };
 }
 
@@ -86,6 +86,8 @@ export class Tunnel extends EventEmitter {
     this._stopped = false;
   }
 
+  parseUrl(text) { return parseTunnelUrl(text); }
+
   args() {
     const a = [...this.binArgs, 'tunnel', '--no-autoupdate'];
     if (this.protocol === 'http2') a.push('--protocol', 'http2');
@@ -114,7 +116,7 @@ export class Tunnel extends EventEmitter {
     const onData = (chunk) => {
       const text = chunk.toString();
       if (!gotUrl) {
-        const url = parseTunnelUrl(text);
+        const url = this.parseUrl(text);
         if (url) {
           gotUrl = true;
           clearTimeout(timer);
@@ -165,4 +167,59 @@ export class Tunnel extends EventEmitter {
     this.url = null;
     if (this.child && this.child.exitCode === null) this.child.kill();
   }
+}
+
+// =============================================================================
+//  Tunel via SSH (localhost.run) — NAO precisa instalar nada no Windows 10/11:
+//  usa o cliente OpenSSH que ja vem com o sistema (C:\Windows\System32\OpenSSH).
+//  O SSH abre uma conexao de SAIDA e o servico devolve um https publico que
+//  aponta para a porta externa do TelaLink.
+// =============================================================================
+export const SSH_HOST = 'localhost.run';
+const SSH_URL_RE = /https:\/\/[a-z0-9-]+\.(?:lhr\.life|localhost\.run)\b/i;
+export const parseSshTunnelUrl = (text) => {
+  for (const m of String(text).matchAll(new RegExp(SSH_URL_RE, 'gi'))) {
+    if (!/^https:\/\/(www|admin|api)\./i.test(m[0])) return m[0];   // ignora links de propaganda/painel
+  }
+  return null;
+};
+const MICROSOFT_RE = /\bO="?Microsoft Corporation"?(,|$)/;
+
+// Acha o ssh do sistema. No Windows exige assinatura valida da Microsoft.
+export function findSsh({ platform = process.platform, env = process.env, run = spawnSync, exists = existsSync } = {}) {
+  const candidates = [];
+  if (env.TELALINK_SSH_PATH) candidates.push(env.TELALINK_SSH_PATH);
+  if (platform === 'win32') candidates.push(win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe'));
+  const r = run(platform === 'win32' ? 'where' : 'which', ['ssh'], { encoding: 'utf8', windowsHide: true });
+  if (r.status === 0) candidates.push(...String(r.stdout).split(/\r?\n/).map((x) => x.trim()).filter(Boolean));
+  const unique = [...new Set(candidates)].filter((p) => exists(p));
+  if (!unique.length) return null;
+  if (platform !== 'win32' || env.TELALINK_SSH_PATH) return { path: unique[0], verified: false };
+  for (const p of unique) {
+    if (verifyAuthenticode(p, run, { signer: MICROSOFT_RE, signerName: 'Microsoft' }).valid) return { path: p, verified: true };
+  }
+  return null;
+}
+
+export class SshTunnel extends Tunnel {
+  constructor({ knownHostsFile, host = SSH_HOST, ...opts }) {
+    super({ startTimeoutMs: 25_000, ...opts });
+    this.knownHostsFile = knownHostsFile;
+    this.host = host;
+  }
+
+  parseUrl(text) { return parseSshTunnelUrl(text); }
+
+  args() {
+    return [...this.binArgs,
+      '-T',                                         // sem terminal interativo
+      '-o', 'StrictHostKeyChecking=accept-new',     // guarda a chave do servidor na 1a vez e exige a mesma depois
+      '-o', `UserKnownHostsFile=${this.knownHostsFile}`,
+      '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3',
+      '-o', 'ExitOnForwardFailure=yes',
+      '-R', `80:127.0.0.1:${this.port}`,
+      `nokey@${this.host}`];
+  }
+
+  _preferHttp2() { /* nao se aplica ao SSH */ }
 }

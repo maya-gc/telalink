@@ -43,8 +43,8 @@ async function host() {
   const page = await (await browser.newContext()).newPage();
   await page.goto(app.base + '/');
   await page.waitForSelector('#tunnelStatus.on');
-  await page.click('#btnStart');
-  await page.waitForSelector('#share:not(.hidden)');
+  await page.click('#btnScreen');
+  await page.waitForSelector('#live:not(.hidden)');
   return { page, link: await page.inputValue('#shareLink'), pin: (await page.textContent('#pinView')).trim() };
 }
 

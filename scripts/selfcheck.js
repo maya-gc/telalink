@@ -4,7 +4,7 @@
 //  testa o fluxo essencial e desliga. Sai com codigo 1 se algo falhar.
 // =============================================================================
 import { startServer } from '../src/server.js';
-import { findCloudflared, WINGET_ID } from '../src/tunnel.js';
+import { findCloudflared, findSsh } from '../src/tunnel.js';
 import { generateSessionKey, deriveKeys, sealBytes, openBytes } from '../public/crypto.js';
 
 const watchdog = setTimeout(() => {
@@ -64,9 +64,12 @@ try {
 const warnings = [];
 if (process.env.TUNNEL !== '0') {
   try {
-    const found = findCloudflared();
-    if (found) check(true, `link externo disponivel${found.verified ? ' (assinatura digital da Cloudflare verificada)' : ''}`);
-    else warnings.push(`cloudflared nao instalado: sem link externo. Instale com: winget install --id ${WINGET_ID} -e`);
+    let cf = null;
+    try { cf = findCloudflared(); } catch { cf = null; }
+    const ssh = cf ? null : findSsh();
+    if (cf) check(true, `link externo: Cloudflare${cf.verified ? ' (assinatura digital verificada)' : ''}`);
+    else if (ssh) check(true, `link externo: SSH do sistema (sem instalar nada)${ssh.verified ? ', assinatura Microsoft verificada' : ''}`);
+    else warnings.push('nenhum metodo de link externo disponivel: so funciona neste PC');
   } catch (err) {
     warnings.push(`link externo desativado: ${err.message}`);
   }

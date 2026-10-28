@@ -215,3 +215,45 @@ describe('Credenciais TURN e tela de configuracoes', () => {
     assert.ok(!r || r.status === 413);
   });
 });
+
+describe('Porta exclusiva dos tuneis (externa por definicao)', () => {
+  // Simula um tunel que NAO envia cabecalho nenhum (ex.: alguns tuneis SSH)
+  // e ainda tenta se passar por local com "Host: localhost".
+  const SEM_CABECALHO = (app) => ({ Host: `localhost:${app.port}` });
+
+  test('painel, configuracoes, criar sala e /api/info: 403 mesmo sem cabecalho de proxy', async () => {
+    const before = app.rooms.size;
+    for (const path of ['/', '/host', '/config', '/api/info', '/api/settings', '/host.js']) {
+      const r = await rawGet(app.externalPort, path, { headers: SEM_CABECALHO(app) });
+      assert.equal(r.status, 403, path);
+    }
+    const p = await rawGet(app.externalPort, '/api/create-room', { method: 'POST', headers: SEM_CABECALHO(app) });
+    assert.equal(p.status, 403);
+    assert.equal(app.rooms.size, before);
+  });
+
+  test('pagina de espectador e scripts publicos abrem normalmente', async () => {
+    for (const path of ['/view?room=x', '/viewer.js', '/crypto.js', '/relay.js', '/style.css', '/health']) {
+      const r = await rawGet(app.externalPort, path, { headers: SEM_CABECALHO(app) });
+      assert.equal(r.status, 200, path);
+    }
+  });
+
+  test('WebSocket pela porta externa: nao vira host, mas entra como espectador com o PIN', async () => {
+    const room = await createRoom(app);
+    const host = wsClient(app.ws); await host.opened;
+    host.json({ type: 'host-join', roomId: room.roomId }); await host.next();
+    const fake = wsClient(app.extWs); await fake.opened;
+    fake.json({ type: 'host-join', roomId: room.roomId });
+    assert.equal((await fake.next()).reason, 'proibido');
+    const v = wsClient(app.extWs); await v.opened;
+    v.json({ type: 'viewer-join', roomId: room.roomId, pin: room.pin });
+    assert.equal((await v.next()).type, 'viewer-accepted');
+    host.close(); fake.close(); v.close();
+  });
+
+  test('a porta externa so escuta em 127.0.0.1 (so o tunel local a alcanca)', () => {
+    assert.equal(app.externalServer.address().address, '127.0.0.1');
+    assert.notEqual(app.externalPort, app.port);
+  });
+});

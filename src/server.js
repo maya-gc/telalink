@@ -48,7 +48,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  "img-src 'self' data: blob:",
   "media-src 'self' blob:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
@@ -84,6 +84,9 @@ const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 const hostnameOf = (hostHeader = '') => hostHeader.toLowerCase().replace(/:\d+$/, '');
 
 export function isExternal(req) {
+  // Tudo que chega pela porta externa (a dos tuneis) e externo, sempre,
+  // independente de cabecalhos: nao depende do provedor do tunel.
+  if (req.socket.__telalinkExternal) return true;
   const h = req.headers;
   if (h['cf-connecting-ip'] || h['cf-ray'] || h['x-forwarded-for'] || h['forwarded']) return true;
   return !LOOPBACK.has(req.socket.remoteAddress);
@@ -131,6 +134,7 @@ export function createServer({
   iceProvider = { forSession: async () => [...DEFAULT_STUN], publicServers: () => [...DEFAULT_STUN], test: async () => ({ ok: true, message: 'sem TURN', servers: [] }) },
   settings = null,
   onRequest = null,
+  onSettingsChanged = () => {},
 } = {}) {
   const rooms = new Map();
   const ipFailures = new Map(); // ip -> { count, resetAt }
@@ -164,8 +168,10 @@ export function createServer({
         usageGB: Number(settings.usageGB().toFixed(2)),
         overCap: settings.overCap(),
         turnError: iceProvider.lastError || null,
-      } : { defaultMode: 'auto', provider: 'none', capGB: null, usageGB: 0, overCap: false, turnError: null };
-      return json(res, 200, { tunnel: getTunnelInfo(), defaultMode: conexao.defaultMode, conexao });
+        tunnel: settings.data.tunnel,
+      } : { defaultMode: 'auto', provider: 'none', capGB: null, usageGB: 0, overCap: false, turnError: null, tunnel: 'auto' };
+      const prefs = settings ? settings.data.prefs : { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100 };
+      return json(res, 200, { tunnel: getTunnelInfo(), defaultMode: conexao.defaultMode, conexao, prefs });
     }
     if (pathname === '/api/settings') {
       if (!settings) return text(res, 404, 'Configuracoes indisponiveis');
@@ -174,6 +180,7 @@ export function createServer({
         const body = await readJson(req);
         try { settings.update(body); } catch (err) { return json(res, 400, { error: err.message }); }
         iceProvider.cache = null;
+        try { onSettingsChanged(settings.data); } catch {}
         return json(res, 200, settings.publicView());
       }
       return text(res, 405, 'Metodo nao permitido');
@@ -187,7 +194,7 @@ export function createServer({
     return null;
   }
 
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req, res) => {
     try {
       onRequest?.(req);
       const url = new URL(req.url, 'http://localhost');
@@ -224,10 +231,14 @@ export function createServer({
       if (!res.headersSent) res.writeHead(500, SECURITY_HEADERS);
       res.end('Erro interno');
     }
-  });
+  };
+  const server = http.createServer(handler);
+  // Porta exclusiva para os tuneis (Cloudflare, SSH...): tudo que chega aqui e externo.
+  const externalServer = http.createServer(handler);
+  externalServer.on('connection', (sock) => { sock.__telalinkExternal = true; });
 
   // ---------------------------------------------------------------- WebSocket
-  const wss = attachWebSocket(server);
+  const wss = attachWebSocket([server, externalServer]);
   wss.verify = (req) => {
     if (originOk(req)) return true;
     const t = getTunnelInfo();
@@ -310,6 +321,7 @@ export function createServer({
             ipFail(ws.ip);
             return send(ws, { type: 'error', reason: 'pin-invalido' });
           }
+          if (room.locked) return send(ws, { type: 'error', reason: 'sala-trancada' });
           if (room.viewers.size >= MAX_VIEWERS) return send(ws, { type: 'error', reason: 'sala-cheia' });
           const viewerId = randomUUID();
           room.viewers.set(viewerId, ws);
@@ -340,6 +352,24 @@ export function createServer({
           if (ws.meta.role !== 'viewer' || !room || !room.relay.has(ws)) return;
           ws.needKey = true;
           return requestKeyframe(room);
+        }
+        case 'kick': {
+          // Host remove um espectador da transmissao.
+          if (ws.meta.role !== 'host' || !room) return;
+          const v = room.viewers.get(msg.viewerId);
+          if (!v) return;
+          send(v, { type: 'kicked' });
+          room.viewers.delete(msg.viewerId);
+          room.relay.delete(v);
+          v.meta = { role: null, roomId: null, viewerId: null };
+          setTimeout(() => v.close(), 50);
+          return send(ws, { type: 'viewer-left', viewerId: msg.viewerId });
+        }
+        case 'lock': {
+          // Host tranca/destranca a sala para novas entradas.
+          if (ws.meta.role !== 'host' || !room) return;
+          room.locked = msg.locked === true;
+          return send(ws, { type: 'locked', locked: room.locked });
         }
         case 'turn-usage': {
           // Host informa bytes que passaram por TURN (para a trava de consumo).
@@ -378,26 +408,33 @@ export function createServer({
   sweeper.unref();
   server.on('close', () => clearInterval(sweeper));
 
-  return { server, rooms, wss };
+  return { server, externalServer, rooms, wss };
 }
 
 // -----------------------------------------------------------------------------
 //  Inicia o servidor. port=0 escolhe uma porta livre (usado nos testes).
 // -----------------------------------------------------------------------------
-export function startServer({ port = 8080, host = '127.0.0.1', ...opts } = {}) {
+export function startServer({ port = 8080, externalPort = 0, host = '127.0.0.1', ...opts } = {}) {
   const app = createServer(opts);
-  return new Promise((resolve, reject) => {
-    app.server.once('error', reject);
-    app.server.listen(port, host, () => {
-      app.port = app.server.address().port;
-      app.close = () => new Promise((r) => {
-        app.server.close(() => r());
-        app.wss.terminateAll();
-        app.server.closeAllConnections?.();
-      });
-      resolve(app);
-    });
+  const listen = (srv, p) => new Promise((resolve, reject) => {
+    srv.once('error', reject);
+    srv.listen(p, host, () => { srv.off('error', reject); resolve(srv.address().port); });
   });
+  return (async () => {
+    app.port = await listen(app.server, port);
+    // A porta externa escuta SEMPRE so em 127.0.0.1: so o tunel local a alcanca.
+    app.externalPort = await new Promise((resolve, reject) => {
+      app.externalServer.once('error', reject);
+      app.externalServer.listen(externalPort, '127.0.0.1', () => resolve(app.externalServer.address().port));
+    }).catch((err) => { app.server.close(); throw err; });
+    app.close = () => {
+      const closing = [app.server, app.externalServer].map((srv) => new Promise((r) => srv.close(() => r())));
+      app.wss.terminateAll();                       // conexoes WebSocket primeiro (o http.Server nao as fecha)
+      for (const srv of [app.server, app.externalServer]) srv.closeAllConnections?.();
+      return Promise.all(closing).then(() => {});
+    };
+    return app;
+  })();
 }
 
 function openBrowser(url) {
@@ -415,12 +452,13 @@ function openBrowser(url) {
 // -----------------------------------------------------------------------------
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const { Tunnel, findCloudflared, WINGET_ID } = await import('./tunnel.js');
+  const { TunnelManager } = await import('./tunnel-manager.js');
   const { SettingsStore } = await import('./settings.js');
   const { IceProvider } = await import('./turn.js');
-  const port = process.env.PORT !== undefined && process.env.PORT !== '' ? Number(process.env.PORT) : 8080;
+  const envPort = (name, def) => (process.env[name] !== undefined && process.env[name] !== '' ? Number(process.env[name]) : def);
+  const port = envPort('PORT', 8080);
+  const externalPort = envPort('EXT_PORT', port === 0 ? 0 : port + 1);
   const host = process.env.HOST || '127.0.0.1';
-  let tunnel = null;
 
   const settings = new SettingsStore().load();
   let stun;
@@ -429,11 +467,15 @@ if (isMain) {
 
   // PUBLIC_URL: endereco publico fixo (proxy reverso proprio ou laboratorio de testes).
   const fixedUrl = process.env.PUBLIC_URL ? process.env.PUBLIC_URL.replace(/\/+$/, '') : null;
-  const getTunnelInfo = () => (fixedUrl ? { status: 'on', url: fixedUrl, error: null }
-    : tunnel ? tunnel.info() : { status: 'off', url: null, error: 'link externo desligado' });
+  let manager = null;
+  const getTunnelInfo = () => (fixedUrl ? { status: 'on', url: fixedUrl, error: null, provider: 'fixo', providerName: 'endereco fixo' }
+    : manager ? manager.info() : { status: 'off', url: null, error: 'link externo desligado' });
 
   try {
-    const app = await startServer({ port, host, settings, iceProvider, getTunnelInfo });
+    const app = await startServer({
+      port, externalPort, host, settings, iceProvider, getTunnelInfo,
+      onSettingsChanged: () => manager?.refresh(),
+    });
     const localUrl = `http://localhost:${app.port}/`;
     console.log('');
     console.log('  TelaLink rodando');
@@ -443,26 +485,23 @@ if (isMain) {
     if (fixedUrl) {
       console.log(`  Endereco publico fixo: ${fixedUrl}`);
     } else if (process.env.TUNNEL !== '0') {
-      let found = null;
-      try { found = findCloudflared(); }
-      catch (err) { console.log(`  [AVISO] ${err.message}`); }
-      if (found) {
-        console.log(`  cloudflared: ${found.path}${found.verified ? ' (assinatura Cloudflare verificada)' : ''}`);
-        tunnel = new Tunnel({ port: app.port, bin: found.path });
-        tunnel.on('url', (u) => {
+      manager = new TunnelManager({ port: app.externalPort, dataDir: settings.dir, getChoice: () => settings.data.tunnel || 'auto' });
+      let lastUrl = null;
+      manager.on('change', (i) => {
+        if (i.status === 'on' && i.url !== lastUrl) {
+          lastUrl = i.url;
           console.log('');
-          console.log(`  Link externo ATIVO:  ${u}`);
-          console.log('  (o painel monta o link de espectador com este endereco)');
+          console.log(`  Link externo ATIVO (${i.providerName}):  ${i.url}`);
           console.log('');
-        });
-        tunnel.on('protocol', () => console.log('  [tunel] rede bloqueando QUIC: tentando via HTTP/2 (TCP)...'));
-        tunnel.on('restart', () => console.log('  [tunel] reconectando...'));
-        tunnel.on('error-status', (m) => console.log(`  [AVISO] Link externo indisponivel: ${m}`));
-        console.log('  Preparando link externo (leva uns segundos)...');
-        tunnel.start();
-      } else if (!tunnel) {
-        console.log(`  [AVISO] cloudflared nao instalado. Para links externos: winget install --id ${WINGET_ID} -e`);
-      }
+        } else if (i.status === 'error') {
+          console.log(`  [AVISO] Link externo indisponivel: ${i.error}`);
+        } else if (i.status === 'starting') {
+          lastUrl = null;
+          console.log(`  Preparando link externo${i.providerName ? ` (${i.providerName})` : ''}...`);
+        }
+      });
+      manager.on('protocol', () => console.log('  [tunel] rede bloqueando QUIC: tentando via HTTP/2 (TCP)...'));
+      manager.start();
     } else {
       console.log('  Link externo desligado (TUNNEL=0).');
     }
@@ -472,14 +511,14 @@ if (isMain) {
     console.log('');
     openBrowser(localUrl);
 
-    const shutdown = () => { tunnel?.stop(); try { settings.save(); } catch {} app.close().then(() => process.exit(0)); };
+    const shutdown = () => { manager?.stop(); try { settings.save(); } catch {} app.close().then(() => process.exit(0)); };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
     process.on('SIGHUP', shutdown);
-    process.on('exit', () => tunnel?.stop());
+    process.on('exit', () => manager?.stop());
   } catch (err) {
     if (err.code === 'EADDRINUSE') {
-      console.error(`\n  [ERRO] A porta ${port} ja esta em uso (outra copia aberta?).`);
+      console.error(`\n  [ERRO] A porta ${err.port || port} ja esta em uso (outra copia aberta?).`);
       console.error('  Feche a outra janela ou use outra porta (veja o README).\n');
     } else {
       console.error('\n  [ERRO] Nao foi possivel iniciar:', err.message, '\n');
