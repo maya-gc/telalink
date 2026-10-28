@@ -26,6 +26,10 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
         node: [22, 24]
+        exclude:
+          # macOS custa 10x os minutos em repositorio privado: so a versao atual.
+          - os: macos-latest
+            node: 22
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:

@@ -7,9 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "selfcheck": "node scripts/selfcheck.js",
-    "test": "node --test --test-reporter=spec \"test/*.test.js\"",
-    "test:ci": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=relatorio-testes.xml \"test/*.test.js\"",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/** --test-coverage-include=public/crypto.js --test-coverage-include=public/media-util.js --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=spec \"test/*.test.js\"",
+    "test": "node --test --test-concurrency=1 --test-reporter=spec \"test/*.test.js\"",
+    "test:ci": "node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=relatorio-testes.xml \"test/*.test.js\"",
+    "test:coverage": "node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=src/** --test-coverage-include=public/crypto.js --test-coverage-include=public/media-util.js --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-reporter=spec \"test/*.test.js\"",
     "test:e2e:setup": "npm install --no-save playwright && npx playwright install chromium",
     "lab": "sudo -E env \"PATH=$PATH\" bash lab/run.sh"
   },

@@ -44,6 +44,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   console.log(md);
   writeFileSync(join(OUT, 'resumo.md'), md);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+  // Evidencia legivel pela API do GitHub (anotacao de aviso com a tabela).
+  const linhas = rows.map((r) => `${r.pass ? 'OK' : 'FALHOU'} | ${r.desc} | ${label[r.transport] || '-'} | ${r.firstFrameMs ? (r.firstFrameMs / 1000).toFixed(1) + ' s' : '-'}`);
+  console.log(`::notice title=Laboratorio de redes - resultado::${annot(linhas.join('\n'))}`);
   for (const r of rows.filter((x) => !x.pass)) {
     const why = r.ok ? `chegou por "${r.transport}", esperado: ${r.aceita.join(' ou ')}` : (r.error || 'sem resultado');
     console.log(`::error title=Laboratorio - ${r.desc.replace(/%/g, "%25").replace(/:/g, "%3A").replace(/,/g, "%2C")}::${annot(`${why}\n--- log do espectador ---\n${tailOf(join(OUT, `${r.name}.log`))}\n--- log do servidor ---\n${tailOf(join(OUT, 'servidor.log'), 10)}`)}`);

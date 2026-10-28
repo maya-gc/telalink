@@ -13,7 +13,7 @@ echo.
 echo   Rodando a bateria de testes automaticos...
 echo   (os testes com navegador real rodam se o Playwright estiver instalado)
 echo.
-node --test --test-reporter=spec "test/*.test.js"
+node --test --test-concurrency=1 --test-reporter=spec "test/*.test.js"
 if errorlevel 1 goto :falhou
 
 echo.
