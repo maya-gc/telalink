@@ -15,10 +15,28 @@ let ws, pc, channel, keys, viewerId, receiver, audioCtx, p2pTimer;
 let iceServers = [];
 let transport = 'conectando';
 
+// Diagnostico de conexao (sem segredos): tipos de candidatos e estados.
+const diag = { local: [], remote: [], states: [], pairs: null };
 window.__telalink = {
   get transport() { return transport; },
   get stats() { return receiver ? { ...receiver.stats } : null; },
+  get diag() { return diag; },
 };
+const candType = (c) => (/ typ (\w+)/.exec(c?.candidate || '') || [])[1] || '?';
+
+// Resumo dos pares de candidatos testados (para entender por que nao conectou).
+async function snapshotPairs(conn) {
+  try {
+    const st = await conn.getStats();
+    const out = [];
+    st.forEach((s) => {
+      if (s.type !== 'candidate-pair') return;
+      const l = st.get(s.localCandidateId); const r = st.get(s.remoteCandidateId);
+      out.push(`${l?.candidateType}->${r?.candidateType} ${s.state} req=${s.requestsSent ?? 0} resp=${s.responsesReceived ?? 0}`);
+    });
+    diag.pairs = out;
+  } catch {}
+}
 
 if (!roomId) fatal('Link inválido: falta o identificador da sala.');
 else if (!sessionKey) fatal('Link incompleto: falta a chave de segurança (a parte depois do “#”). Peça o link completo para quem está transmitindo.');
@@ -97,7 +115,7 @@ async function onHostSignal(p) {
     await pc.setLocalDescription(answer);
     return sendSig({ kind: 'sdp', sdp: pc.localDescription.toJSON() });
   }
-  if (p.kind === 'ice' && pc) await pc.addIceCandidate(p.candidate).catch(() => {});
+  if (p.kind === 'ice' && pc) { diag.remote.push(candType(p.candidate)); await pc.addIceCandidate(p.candidate).catch((e) => diag.states.push('addIce-erro:' + e.name)); }
 }
 
 function createPeer() {
@@ -108,14 +126,16 @@ function createPeer() {
     if (v.srcObject !== e.streams[0]) v.srcObject = e.streams[0];
   };
   pc.onicecandidate = (e) => {
-    if (e.candidate) { localCandidates++; sendSig({ kind: 'ice', candidate: e.candidate.toJSON() }); }
+    if (e.candidate) { localCandidates++; diag.local.push(candType(e.candidate)); sendSig({ kind: 'ice', candidate: e.candidate.toJSON() }); }
   };
   // Nenhum caminho de rede disponivel (VPN/extensao que desliga WebRTC):
   // nao adianta esperar o tempo-limite, troca ja para a retransmissao.
   pc.onicegatheringstatechange = () => {
     if (pc?.iceGatheringState === 'complete' && localCandidates === 0) fallbackToRelay();
   };
+  pc.oniceconnectionstatechange = () => diag.states.push(`ice:${pc?.iceConnectionState}`);
   pc.onconnectionstatechange = async () => {
+    diag.states.push(`pc:${pc?.connectionState}`);
     if (pc.connectionState === 'connected') {
       clearTimeout(p2pTimer);
       setTransport(await describeTransport(pc));
@@ -130,7 +150,7 @@ function createPeer() {
 async function fallbackToRelay() {
   if (transport === 'retransmissao') return;
   clearTimeout(p2pTimer);
-  if (pc) { pc.close(); pc = null; }
+  if (pc) { await snapshotPairs(pc); pc.close(); pc = null; }
   await sendSig({ kind: 'bye-p2p' });
   startRelay();
 }

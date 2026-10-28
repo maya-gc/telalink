@@ -35,6 +35,8 @@ try {
   result.firstFrameMs = Date.now() - t0;
   result.transport = await page.evaluate(() => window.__telalink.transport);
   result.stats = await page.evaluate(() => window.__telalink.stats);
+  result.diag = await page.evaluate(() => window.__telalink.diag);
+  console.log(`[${scenario} diag]`, JSON.stringify(result.diag));
   result.ok = true;
   await page.screenshot({ path: join(OUT, `${scenario}.png`) });
 } catch (err) {
