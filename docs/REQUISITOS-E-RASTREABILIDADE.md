@@ -59,6 +59,7 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RS-20 | IP confiável conforme o provedor do túnel | `seguranca.test.js` |
 | RS-21 | Túnel SSH não revela chaves nem usa configuração pessoal | `tunnel-manager.test.js` |
 | RS-22 | Downloads só de fonte oficial com SHA-256 e assinatura; sem padrões de malware nos scripts | `instalador.test.js`, `arquivos.test.js` |
+| RS-23 | Sem nada que anti-cheats/antivírus vigiam (injeção, memória, entradas, drivers, admin, ofuscação); lista fixa de programas executados; prioridade baixa | `anticheat.test.js` |
 | RS-16 | Túnel só alcança a porta externa dedicada; nela tudo é externo | `acesso.test.js` › porta externa |
 | RS-17 | `ssh` só com assinatura Microsoft válida; chave do servidor fixada no primeiro uso | `tunnel.test.js` (inclui verificação real no Windows) |
 

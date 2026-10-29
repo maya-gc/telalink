@@ -4,6 +4,7 @@
 //  testa o fluxo essencial e desliga. Sai com codigo 1 se algo falhar.
 // =============================================================================
 import { startServer } from '../src/server.js';
+import { isElevated } from '../src/sistema.js';
 import { findCloudflared, findSsh, diagnoseSsh } from '../src/tunnel.js';
 import { generateSessionKey, deriveKeys, sealBytes, openBytes } from '../public/crypto.js';
 
@@ -62,6 +63,7 @@ try {
 
 // Link externo: so um AVISO se faltar (o uso local continua funcionando).
 const warnings = [];
+if (isElevated()) warnings.push('rodando como ADMINISTRADOR: nao precisa (abra o Iniciar.bat com duplo-clique normal)');
 if (process.env.TUNNEL !== '0') {
   try {
     let cf = null;

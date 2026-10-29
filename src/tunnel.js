@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import { win32, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
+import { lowerPriority } from './sistema.js';
 
 export const WINGET_ID = 'Cloudflare.cloudflared';
 // Pasta onde o TelaLink guarda o que baixa sozinho (Node.js portatil, cloudflared).
@@ -121,6 +122,7 @@ export class Tunnel extends EventEmitter {
     let child;
     try {
       child = spawn(this.bin, this.args(), { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      if (child.pid) lowerPriority(child.pid);   // tunel tambem com prioridade abaixo do normal
     } catch (err) {
       return this._fail(err.message);
     }

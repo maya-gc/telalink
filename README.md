@@ -76,6 +76,10 @@ O modo **Máxima segurança** usa sempre a retransmissão cifrada (ver abaixo).
 
 Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md), [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) e [`SECURITY.md`](SECURITY.md).
 
+## Anti-cheat e antivírus (Vanguard, Easy Anti-Cheat, VAC, BattlEye, FACEIT)
+
+Risco muito baixo: o TelaLink **não mexe no jogo** — não injeta código, não lê memória, não desenha sobre o jogo, não simula teclado/mouse, não instala driver e não pede administrador. A tela é capturada pelo navegador, como no compartilhamento do Discord ou do Meet. Um teste automático reprova qualquer versão que passe a fazer algo disso. O que é proibido pelos jogos é o **uso** (transmitir ao vivo para alguém na mesma partida ranqueada/campeonato). Detalhes e fontes: [`docs/ANTI-CHEAT-E-ANTIVIRUS.md`](docs/ANTI-CHEAT-E-ANTIVIRUS.md).
+
 ## É legal? Pode ser bloqueado?
 
 Sim, é legal: funciona como uma chamada de vídeo (mostra só o que você escolhe, sem controle remoto nem invasão, sem contornar DRM). Não há servidor central para "derrubar" — roda no seu PC. O que depende de terceiros é o link externo gratuito (Cloudflare e localhost.run, sem garantia de disponibilidade e às vezes bloqueados em redes de empresa); para uso contínuo, o recomendado é um domínio próprio. Levantamento completo, com fontes: [`docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`](docs/RISCOS-LEGAIS-E-CONTINUIDADE.md).
@@ -109,6 +113,7 @@ O **GitHub Actions** roda tudo a cada envio, em Windows, macOS e Linux, e o **la
 | [`docs/PLANO-DE-TESTES.md`](docs/PLANO-DE-TESTES.md) | Estratégia, níveis, laboratório e teste manual |
 | [`docs/PROCESSO-DE-QUALIDADE.md`](docs/PROCESSO-DE-QUALIDADE.md) | Práticas alinhadas a CMMI e ISO, e o que exige auditoria |
 | [`docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`](docs/RISCOS-LEGAIS-E-CONTINUIDADE.md) | Leis, termos dos serviços de link, bloqueios possíveis e plano B |
+| [`docs/ANTI-CHEAT-E-ANTIVIRUS.md`](docs/ANTI-CHEAT-E-ANTIVIRUS.md) | Por que anti-cheats e antivírus não têm o que detectar, e cuidados de uso |
 | [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) | Auditoria da versão 2.4: achados, correções e testes |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Componentes de terceiros e licenças |
 | [`docs/ASSINATURA-DE-CODIGO.md`](docs/ASSINATURA-DE-CODIGO.md) | Como evitar alertas do Windows (SmartScreen/antivírus) |

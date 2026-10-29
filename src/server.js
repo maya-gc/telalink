@@ -500,6 +500,9 @@ if (isMain) {
   const { TunnelManager } = await import('./tunnel-manager.js');
   const { SettingsStore } = await import('./settings.js');
   const { IceProvider } = await import('./turn.js');
+  const { isElevated, lowerPriority, ADMIN_WARNING } = await import('./sistema.js');
+  lowerPriority();                       // nunca disputa processador com jogos/aplicativos
+  if (isElevated()) for (const l of ADMIN_WARNING) console.log(l);
   const envPort = (name, def) => (process.env[name] !== undefined && process.env[name] !== '' ? Number(process.env[name]) : def);
   const port = envPort('PORT', 8080);
   const externalPort = envPort('EXT_PORT', port === 0 ? 0 : port + 1);

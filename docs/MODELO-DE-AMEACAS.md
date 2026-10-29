@@ -47,6 +47,7 @@
 | A22 | I | Túnel SSH revela a identidade do usuário (chaves SSH pessoais oferecidas ao servidor) | Sem autenticação por chave, sem agente, sem `~/.ssh/config` | `tunnel-manager.test.js` |
 | A23 | T | Instalador baixa Node.js ou cloudflared adulterado | HTTPS de fonte oficial + SHA-256 publicado + assinatura digital do fabricante; falha = nada instalado | `instalador.test.js`, workflow `instalador` |
 | A24 | T | Ação do GitHub Actions trocada (etiqueta movida) | Ações fixadas por SHA de commit | revisão |
+| A25 | — | Anti-cheat ou antivírus confunde o TelaLink com trapaça/malware (falso positivo) | Nenhum contato com processos de jogo, sem drivers, sem admin, só programas assinados, código aberto; teste que impede regressões | `anticheat.test.js` |
 | A16 | I | "Armazenar agora, decifrar depois" (quântico) | Modo **Máxima segurança**: só AES-256 com chave pré-compartilhada (Grover → ~128 bits efetivos). HTTPS até a Cloudflare usa troca de chaves híbrida pós-quântica nos navegadores atuais | `e2e.test.js` (modo máxima segurança) |
 
 ## Riscos residuais (aceitos e comunicados)

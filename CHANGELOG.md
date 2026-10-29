@@ -1,5 +1,13 @@
 # Histórico de versões
 
+## 2.4.1 — 2026-10-29
+
+### Novo
+- `docs/ANTI-CHEAT-E-ANTIVIRUS.md`: o que Vanguard, Easy Anti-Cheat, VAC, BattlEye e FACEIT procuram e por que o TelaLink não se parece com isso; cuidados de uso (ghosting).
+- Teste automático (`anticheat.test.js`) que reprova a versão se aparecer: executável/driver/módulo nativo, código que mexa em outros processos, memória, teclado ou mouse, programa fora da lista fixa, pedido de administrador, janela escondida ou execução de código decodificado.
+- Aviso se o TelaLink for aberto como administrador; servidor e túnel com prioridade abaixo do normal (não disputam processador com jogos).
+- Dica de uso com jogos em ⚙ Configurações.
+
 ## 2.4.0 — 2026-10-29
 
 ### Novo

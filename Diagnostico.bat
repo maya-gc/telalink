@@ -23,7 +23,7 @@ for /f "delims=" %%v in ('"%TL_NODE%" --version') do echo       OK, versao %%v e
 echo.
 
 echo   [2] Arquivos do programa:
-for %%f in (src\server.js src\ws-lite.js src\tunnel.js src\settings.js src\turn.js src\tunnel-manager.js public\host.html public\viewer.html public\host.js public\viewer.js public\crypto.js public\relay.js public\output.js public\media-util.js scripts\selfcheck.js scripts\instalar-node.ps1 scripts\baixar-cloudflared.js) do (
+for %%f in (src\server.js src\ws-lite.js src\tunnel.js src\settings.js src\turn.js src\tunnel-manager.js src\sistema.js public\host.html public\viewer.html public\host.js public\viewer.js public\crypto.js public\relay.js public\output.js public\media-util.js scripts\selfcheck.js scripts\instalar-node.ps1 scripts\baixar-cloudflared.js) do (
   if exist "%~dp0%%f" (echo       OK        %%f) else (echo       FALTANDO  %%f)
 )
 echo.
