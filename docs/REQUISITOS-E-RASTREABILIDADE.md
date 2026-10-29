@@ -24,6 +24,10 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-14 | Transmitir imagens como slides e trocar de fonte durante a transmissão | `controles.test.js` › imagens, trocar |
 | RF-15 | Trancar sala e remover espectador | `server.test.js` › kick/lock, `controles.test.js` |
 | RF-16 | Controles de quem assiste (volume, encaixe, flutuante, tela cheia) com preferências guardadas | `controles.test.js` › espectador |
+| RF-18 | Quem assiste recebe a resolução cheia em poucos segundos (sem começar em 360p) | `qualidade.test.js` › resolução cheia |
+| RF-19 | Qualidades até 4K e limite de banda ajustável; troca ao vivo sem encolher duas vezes | `qualidade.test.js`, `media.test.js` › qualidade/SDP, `controles.test.js` › Econômica |
+| RF-20 | Retransmissão com H.264/VP9/VP8, banda adaptativa e resolução conforme a banda | `qualidade.test.js` › retransmissão, `media.test.js` › banda adaptativa |
+| RF-21 | Indicador de qualidade recebida/enviada (resolução, qps, Mbps, codec, limitação) | `qualidade.test.js` |
 | RF-17 | Link externo sem instalar nada (SSH do sistema), com escolha automática do provedor | `tunnel-manager.test.js`, `tunnel.test.js` › SSH, `main.test.js` › SSH |
 
 ## Segurança

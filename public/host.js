@@ -5,14 +5,15 @@
 // =============================================================================
 import { $, show, openSocket, describeTransport, turnBytesSent, TRANSPORT_LABEL, supportsWebCodecs } from './common.js';
 import { generateSessionKey, deriveKeys, toB64url, SecureChannel } from './crypto.js';
-import { BlackScreenDetector, QUALITY, qualityPreset, captureConstraints, senderEncoding, inviteText } from './media-util.js';
+import { BlackScreenDetector, QUALITY, qualityPreset, captureConstraints, senderEncoding, inviteText,
+  maxKbpsFor, degradationFor, withBitrateHints, orderCodecs, qualityText } from './media-util.js';
 import { RelaySender } from './relay.js';
 import { Output, loadImageFiles } from './output.js';
 
 // ------------------------------------------------------------ estado
 let tunnel = { status: 'off', url: null, error: null };
 let conexao = null;
-let prefs = { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100 };
+let prefs = { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0 };
 let policy = 'auto';
 let ws, roomId, pin, sessionKey, keys;
 let iceServers = [];
@@ -34,14 +35,16 @@ window.__telalink = {
         if (s.track?.kind !== 'video') continue;
         const e = s.getParameters().encodings?.[0] || {};
         const h = s.track.getSettings().height || 0;
-        out.push({ trackHeight: h, scale: e.scaleResolutionDownBy || 1, height: Math.round(h / (e.scaleResolutionDownBy || 1)), maxBitrate: e.maxBitrate || null });
+        out.push({ trackHeight: h, scale: e.scaleResolutionDownBy || 1, height: Math.round(h / (e.scaleResolutionDownBy || 1)), maxBitrate: e.maxBitrate || null, degradation: s.getParameters().degradationPreference || null });
       }
     }
     return out;
   },
+  // Qualidade realmente enviada a cada pessoa (resolucao, quadros, banda, codec).
+  measure: () => measureSending(),
   get state() {
     return output ? { source: output.source, paused: output.paused, muted: output.muted, volume: output.volume,
-      quality: prefs.quality, fps: prefs.fps, locked, policy } : null;
+      quality: prefs.quality, fps: prefs.fps, bitrate: prefs.bitrate, locked, policy } : null;
   },
 };
 
@@ -103,6 +106,7 @@ renderSummary();
 function openSettings() {
   qualityOptions($('optQuality'), prefs.quality);
   $('optFps').value = String(prefs.fps);
+  $('optBitrate').value = String(prefs.bitrate || 0);
   document.querySelector(`input[name=hint][value=${prefs.hint}]`).checked = true;
   $('optAudio').checked = prefs.audio;
   $('optVolume').value = prefs.volume; $('optVolumeTxt').textContent = `${prefs.volume}%`;
@@ -123,6 +127,7 @@ $('btnSaveSettings').onclick = async () => {
     quality: $('optQuality').value, fps: Number($('optFps').value),
     hint: document.querySelector('input[name=hint]:checked').value,
     audio: $('optAudio').checked, volume: Number($('optVolume').value),
+    bitrate: Number($('optBitrate').value),
   };
   const nextPolicy = document.querySelector('input[name=policy]:checked').value;
   const nextTunnel = $('optTunnel').value;
@@ -152,8 +157,10 @@ function captureOptions() {
   };
 }
 
+let captureCap = 0;   // altura maxima pedida na captura atual
 async function pickScreen() {
   const stream = await navigator.mediaDevices.getDisplayMedia(captureOptions());
+  captureCap = qualityPreset(prefs.quality).maxH;
   const v = stream.getVideoTracks()[0];
   try { v.contentHint = prefs.hint; } catch {}
   v.addEventListener('ended', () => { if (output?.screen === stream) stopAll(); });
@@ -212,6 +219,8 @@ async function goLive() {
 
   $('pinView').textContent = pin;
   $('preview').srcObject = output.stream;
+  // Quando a resolucao real da fonte muda (troca de tela, janela redimensionada), recalcula o envio.
+  $('preview').onresize = () => { for (const v of viewers.values()) setSenderQuality(v.pc); };
   qualityOptions($('liveQuality'), prefs.quality);
   $('home').classList.add('hidden');
   $('live').classList.remove('hidden');
@@ -280,24 +289,47 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Aplica qualidade/quadros em todos os caminhos (captura, WebRTC, retransmissao).
-function applyQuality() {
-  const q = qualityPreset(prefs.quality);
-  output.screenTrack?.applyConstraints(captureConstraints(prefs.quality, prefs.fps)).catch(() => {});
-  for (const v of viewers.values()) setSenderQuality(v.pc);
-  relay?.setQuality({ maxH: q.maxH, bitrate: q.bitrate || 2_500_000, fps: prefs.fps });
+async function applyQuality() {
+  if (!output) return;
+  // 1) A captura so e ajustada para SUBIR a resolucao (ou mudar quadros/s):
+  //    reduzir a captura de tela durante a transmissao nao e confiavel em todos
+  //    os navegadores. Para reduzir, quem encolhe e o envio (passo 2), calculado
+  //    sobre a altura REAL dos quadros — assim nunca encolhe duas vezes.
+  const want = qualityPreset(prefs.quality).maxH;
+  if (output.screenTrack) {
+    captureCap = Math.max(captureCap, want);
+    try { await output.screenTrack.applyConstraints(captureConstraints(Object.keys(QUALITY).find((k) => QUALITY[k].maxH === captureCap) || prefs.quality, prefs.fps)); } catch {}
+    await waitFrameHeight();
+  }
+  // 2) ajusta o envio de cada pessoa
+  for (const v of viewers.values()) await setSenderQuality(v.pc);
+  relay?.setQuality(relayQuality());
 }
-function setSenderQuality(pc) {
+// Altura real dos quadros da tela (o <video> de pre-visualizacao mostra os
+// quadros de verdade; getSettings() as vezes informa o valor pedido, nao o real).
+function sourceHeight() {
+  if (output?.source === 'screen' && !output.paused) return $('preview').videoHeight || output.sourceHeight;
+  return output?.sourceHeight || 0;
+}
+// Espera a pre-visualizacao refletir a nova captura (ate 1,5 s).
+async function waitFrameHeight() {
+  const target = output.screenTrack?.getSettings().height;
+  for (let i = 0; i < 15 && target && $('preview').videoHeight !== target; i++) await new Promise((r) => setTimeout(r, 100));
+}
+function relayQuality() {
+  const q = qualityPreset(prefs.quality);
+  return { maxH: q.maxH, bitrate: maxKbpsFor(prefs.quality, { fps: prefs.fps, limitMbps: prefs.bitrate }) * 1000, fps: prefs.fps, autoRes: prefs.quality === 'auto' };
+}
+async function setSenderQuality(pc) {
   if (!pc) return;
   for (const sender of pc.getSenders()) {
     if (sender.track?.kind !== 'video') continue;
     const params = sender.getParameters();
     if (!params.encodings?.length) params.encodings = [{}];
-    const enc = senderEncoding(prefs.quality, prefs.fps, output.sourceHeight);
-    params.encodings[0].maxFramerate = enc.maxFramerate;
-    params.encodings[0].scaleResolutionDownBy = enc.scaleResolutionDownBy;
-    if (enc.maxBitrate) params.encodings[0].maxBitrate = enc.maxBitrate; else delete params.encodings[0].maxBitrate;
-    params.degradationPreference = prefs.hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
-    sender.setParameters(params).catch(() => {});
+    const enc = senderEncoding(prefs.quality, prefs.fps, sourceHeight(), { limitMbps: prefs.bitrate });
+    Object.assign(params.encodings[0], enc);
+    params.degradationPreference = degradationFor(prefs.quality, prefs.hint);
+    await sender.setParameters(params).catch((e) => console.warn('[telalink qualidade]', e));
   }
 }
 
@@ -346,10 +378,40 @@ async function onViewerSignal(viewerId, envelope) {
   let p;
   try { p = await v.channel.open('v2h', envelope); }
   catch { console.warn('[telalink] mensagem nao autenticada descartada'); return; }
-  if (p.kind === 'sdp' && v.pc) await v.pc.setRemoteDescription(p.sdp);
+  if (p.kind === 'sdp' && v.pc) {
+    // Comeca com banda alta (o padrao do navegador e ~0,3 Mbps = 360p por varios segundos).
+    const max = maxKbpsFor(prefs.quality, { fps: prefs.fps, limitMbps: prefs.bitrate });
+    const start = Math.min(qualityPreset(prefs.quality).startKbps, max);
+    await v.pc.setRemoteDescription({ type: p.sdp.type, sdp: withBitrateHints(p.sdp.sdp, { startKbps: start, maxKbps: max }) });
+  }
   else if (p.kind === 'ice' && v.pc) await v.pc.addIceCandidate(p.candidate).catch(() => {});
   else if (p.kind === 'transport') v.transport = p.mode;
   else if (p.kind === 'bye-p2p') { v.pc?.close(); v.pc = null; }
+}
+
+// Codecs que este PC codifica por hardware (menos processador = imagem mais estavel).
+let hwCodecsPromise = null;
+function hwCodecs() {
+  hwCodecsPromise ||= (async () => {
+    const set = new Set();
+    if (!navigator.mediaCapabilities?.encodingInfo) return set;
+    for (const t of ['video/VP9', 'video/H264', 'video/AV1']) {
+      try {
+        const r = await navigator.mediaCapabilities.encodingInfo({ type: 'webrtc', video: { contentType: t, width: 1920, height: 1080, bitrate: 8_000_000, framerate: 30 } });
+        if (r.supported && r.powerEfficient) set.add(t.toLowerCase());
+      } catch {}
+    }
+    return set;
+  })();
+  return hwCodecsPromise;
+}
+async function preferCodecs(pc) {
+  const caps = globalThis.RTCRtpSender?.getCapabilities?.('video');
+  if (!caps) return;
+  const order = orderCodecs(caps.codecs, await hwCodecs());
+  for (const t of pc.getTransceivers()) {
+    if (t.sender.track?.kind === 'video' && t.setCodecPreferences) try { t.setCodecPreferences(order); } catch {}
+  }
 }
 
 async function createOffer(viewerId) {
@@ -360,10 +422,11 @@ async function createOffer(viewerId) {
     const sender = pc.addTrack(track, output.stream);
     if (track.kind === 'video') v.videoSender = sender;
   }
-  setSenderQuality(pc);
+  await preferCodecs(pc);
+  await setSenderQuality(pc);
   pc.onicecandidate = (e) => { if (e.candidate) sendSig(viewerId, { kind: 'ice', candidate: e.candidate.toJSON() }); };
   pc.onconnectionstatechange = async () => {
-    if (pc.connectionState === 'connected') { v.transport = await describeTransport(pc); setSenderQuality(pc); renderViewers(); }
+    if (pc.connectionState === 'connected') { v.transport = await describeTransport(pc); await setSenderQuality(pc); renderViewers(); }
     else if (pc.connectionState === 'failed') { pc.close(); if (v.pc === pc) v.pc = null; }
   };
   const offer = await pc.createOffer();
@@ -376,10 +439,9 @@ function onRelayWant(viewerId) {
   if (v) { v.transport = 'retransmissao'; v.pc?.close(); v.pc = null; }
   relayViewers.add(viewerId);
   if (!relay) {
-    const q = qualityPreset(prefs.quality);
     relay = new RelaySender({
       stream: output.stream, mediaKey: keys.media, ws, previewVideo: $('preview'),
-      bitrate: q.bitrate || (prefs.hint === 'detail' ? 3_000_000 : 2_500_000), maxH: q.maxH, fps: prefs.fps,
+      ...relayQuality(),
       onError: (e) => console.warn('[telalink relay]', e),
     });
   }
@@ -414,12 +476,43 @@ function renderViewers() {
     const kick = document.createElement('button'); kick.className = 'ghost small'; kick.textContent = 'Remover';
     kick.dataset.viewer = id;
     kick.onclick = () => ws.json({ type: 'kick', viewerId: id });
-    right.append(how, kick);
+    const qual = document.createElement('span'); qual.className = 'stat q'; qual.dataset.q = id; qual.textContent = v.qtext || '';
+    right.append(qual, how, kick);
     li.append(name, right);
     list.appendChild(li);
   }
   $('viewerCount').textContent = n;
 }
+
+// ------------------------------------------------------------ qualidade enviada
+const LIMIT_TXT = { bandwidth: 'limitado pela internet', cpu: 'limitado pelo processador' };
+async function measureSending() {
+  const out = [];
+  for (const [id, v] of viewers) {
+    let q = null;
+    if (v.transport === 'retransmissao' && relay) q = relay.quality();
+    else if (v.pc) {
+      try {
+        const st = await v.pc.getStats();
+        st.forEach((r) => {
+          if (r.type !== 'outbound-rtp' || r.kind !== 'video') return;
+          const now = r.timestamp, bytes = r.bytesSent;
+          const bps = v.lastOut ? ((bytes - v.lastOut.bytes) * 8 * 1000) / Math.max(1, now - v.lastOut.t) : 0;
+          v.lastOut = { bytes, t: now };
+          const codec = st.get(r.codecId)?.mimeType?.split('/')[1];
+          q = { height: r.frameHeight, width: r.frameWidth, fps: r.framesPerSecond, bps, codec, limit: r.qualityLimitationReason };
+        });
+      } catch {}
+    }
+    v.quality = q;
+    v.qtext = q ? [qualityText(q), q.codec, LIMIT_TXT[q.limit]].filter(Boolean).join(' · ') : '';
+    const el = document.querySelector(`#viewerList [data-q="${id}"]`);
+    if (el) el.textContent = v.qtext;
+    out.push({ id, transport: v.transport, ...(q || {}) });
+  }
+  return out;
+}
+setInterval(() => { if (viewers.size) measureSending(); }, 2000);
 
 // ------------------------------------------------------------ consumo TURN
 async function reportTurnUsage() {

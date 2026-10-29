@@ -103,30 +103,133 @@ export class BlackScreenDetector {
 
 // ------------------------------------------------------------- qualidade
 // Predefinicoes simples para o usuario final. bitrate 0 = o navegador decide.
+// -----------------------------------------------------------------------------
+//  Qualidade. maxH = altura maxima; maxKbps = teto de banda; startKbps = banda
+//  com que a transmissao COMECA (sem isso o navegador comeca em ~0,3 Mbps e
+//  fica em 360p por varios segundos); keepRes = manter resolucao (reduz quadros
+//  por segundo antes de reduzir nitidez).
+// -----------------------------------------------------------------------------
 export const QUALITY = {
-  auto:      { label: 'Automática',        maxH: 1080, bitrate: 0 },
-  alta:      { label: 'Alta (1080p)',      maxH: 1080, bitrate: 4_000_000 },
-  media:     { label: 'Média (720p)',      maxH: 720,  bitrate: 2_000_000 },
-  economica: { label: 'Econômica (480p)',  maxH: 480,  bitrate: 800_000 },
+  auto:      { label: 'Automática (até 1080p)',      maxH: 1080, maxKbps: 8000,  startKbps: 4000, keepRes: false },
+  original:  { label: 'Máxima (original, até 4K)',   maxH: 2160, maxKbps: 25000, startKbps: 8000, keepRes: true },
+  qhd:       { label: 'Muito alta (1440p)',          maxH: 1440, maxKbps: 14000, startKbps: 6000, keepRes: true },
+  alta:      { label: 'Alta (1080p)',                maxH: 1080, maxKbps: 8000,  startKbps: 4000, keepRes: true },
+  media:     { label: 'Média (720p)',                maxH: 720,  maxKbps: 4000,  startKbps: 2500, keepRes: true },
+  economica: { label: 'Econômica (480p)',            maxH: 480,  maxKbps: 1500,  startKbps: 1000, keepRes: true },
 };
 export const FPS_OPTIONS = [15, 30, 60];
+// Limite de banda escolhido pelo usuario, em Mbps (0 = o da qualidade).
+export const BITRATE_OPTIONS = [0, 2, 4, 8, 12, 20, 30];
 
 export function qualityPreset(name) { return QUALITY[name] || QUALITY.auto; }
 
+// Teto de banda efetivo (kbps): o limite do usuario, se houver, senao o da qualidade.
+// 60 quadros/s precisam de mais banda para a mesma nitidez.
+export function maxKbpsFor(name, { fps = 30, limitMbps = 0 } = {}) {
+  if (BITRATE_OPTIONS.includes(limitMbps) && limitMbps > 0) return limitMbps * 1000;
+  const q = qualityPreset(name);
+  return fps >= 60 ? Math.round(q.maxKbps * 1.5) : q.maxKbps;
+}
+
 // Restricoes de captura para a tela (limita resolucao e quadros por segundo).
+// So a ALTURA e limitada: a largura acompanha a proporcao da tela (16:9,
+// ultralarga, retrato), sem cortar nem distorcer.
 export function captureConstraints(name, fps = 30) {
   const q = qualityPreset(name);
   const f = FPS_OPTIONS.includes(fps) ? fps : 30;
-  return { width: { max: Math.round((q.maxH * 16) / 9) }, height: { max: q.maxH }, frameRate: { ideal: f, max: f } };
+  return { height: { max: q.maxH }, frameRate: { ideal: f, max: f } };
 }
 
 // Parametros do envio WebRTC: teto de banda, quadros e reducao de escala.
-export function senderEncoding(name, fps = 30, sourceHeight = 0) {
+export function senderEncoding(name, fps = 30, sourceHeight = 0, { limitMbps = 0 } = {}) {
   const q = qualityPreset(name);
-  const enc = { maxFramerate: FPS_OPTIONS.includes(fps) ? fps : 30 };
-  if (q.bitrate) enc.maxBitrate = q.bitrate;
-  enc.scaleResolutionDownBy = sourceHeight > q.maxH ? Number((sourceHeight / q.maxH).toFixed(3)) : 1;
-  return enc;
+  const f = FPS_OPTIONS.includes(fps) ? fps : 30;
+  return {
+    maxFramerate: f,
+    maxBitrate: maxKbpsFor(name, { fps: f, limitMbps }) * 1000,
+    scaleResolutionDownBy: sourceHeight > q.maxH ? Number((sourceHeight / q.maxH).toFixed(3)) : 1,
+  };
+}
+
+// O que o navegador corta primeiro quando falta internet/processador.
+// Texto/detalhe ou resolucao escolhida: mantem a nitidez (corta quadros).
+export function degradationFor(name, hint) {
+  if (hint === 'detail' || qualityPreset(name).keepRes) return 'maintain-resolution';
+  return 'balanced';
+}
+
+// Acrescenta ao SDP a banda inicial e maxima para cada codec de video
+// (x-google-start-bitrate / x-google-max-bitrate, em kbps). Ignora codecs
+// auxiliares (rtx, red, ulpfec, flexfec).
+export function withBitrateHints(sdp, { startKbps, maxKbps }) {
+  const lines = sdp.split('\r\n');
+  const out = [];
+  let inVideo = false;
+  const fmtpSeen = new Set();
+  const videoPts = new Map();
+  for (const l of lines) {
+    if (l.startsWith('m=')) inVideo = l.startsWith('m=video');
+    const m = inVideo && /^a=rtpmap:(\d+) ([^/]+)\//.exec(l);
+    if (m && !/^(rtx|red|ulpfec|flexfec-03)$/i.test(m[2])) videoPts.set(m[1], true);
+  }
+  const hint = `x-google-start-bitrate=${Math.round(startKbps)};x-google-max-bitrate=${Math.round(maxKbps)}`;
+  inVideo = false;
+  for (const l of lines) {
+    if (l.startsWith('m=')) inVideo = l.startsWith('m=video');
+    const f = inVideo && /^a=fmtp:(\d+) (.*)$/.exec(l);
+    if (f && videoPts.has(f[1])) {
+      fmtpSeen.add(f[1]);
+      const rest = f[2].split(';').filter((x) => x && !/^x-google-(start|max)-bitrate=/.test(x.trim())).join(';');
+      out.push(`a=fmtp:${f[1]} ${rest ? `${rest};` : ''}${hint}`);
+      continue;
+    }
+    out.push(l);
+    const r = inVideo && /^a=rtpmap:(\d+) /.exec(l);
+    // Codec sem linha fmtp (ex.: VP8): cria uma logo apos o rtpmap.
+    if (r && videoPts.has(r[1]) && !lines.some((x) => x.startsWith(`a=fmtp:${r[1]} `))) out.push(`a=fmtp:${r[1]} ${hint}`);
+  }
+  return out.join('\r\n');
+}
+
+// Ordem de preferencia dos codecs WebRTC: o que o PC codifica por HARDWARE
+// primeiro (menos processador = menos queda de resolucao); depois VP9 (melhor
+// imagem por bit), H.264 e VP8. `hw` = conjunto de tipos com hardware.
+export function orderCodecs(codecs, hw = new Set()) {
+  const rank = (c) => {
+    const t = c.mimeType.toLowerCase();
+    const base = { 'video/vp9': 1, 'video/h264': 2, 'video/vp8': 3, 'video/av1': 4 }[t];
+    if (base === undefined) return 100;               // rtx, red, ulpfec ficam no fim
+    const highProfile = t === 'video/h264' && /profile-level-id=(64|4d)/i.test(c.sdpFmtpLine || '') ? -0.5 : 0;
+    return (hw.has(t) ? 0 : 10) + base + highProfile;
+  };
+  return [...codecs].sort((a, b) => rank(a) - rank(b));
+}
+
+// Retransmissao: altura adequada para a banda disponivel (no modo automatico).
+export function relayHeightFor(bps) {
+  if (bps >= 12_000_000) return 2160;
+  if (bps >= 6_000_000) return 1440;
+  if (bps >= 2_500_000) return 1080;
+  if (bps >= 1_200_000) return 720;
+  return 480;
+}
+
+// Controle de banda da retransmissao (aumenta devagar, reduz rapido),
+// guiado pela fila de envio do WebSocket. Retorna a nova banda (bps).
+export function adaptBitrate(current, { buffered, maxBps, minBps = 500_000 }) {
+  if (buffered > 1_000_000) return Math.max(minBps, Math.round(current * 0.7));
+  if (buffered > 400_000) return Math.max(minBps, Math.round(current * 0.9));
+  if (buffered < 150_000) return Math.min(maxBps, Math.round(current * 1.08));
+  return current;
+}
+
+// Texto curto de qualidade: "1080p · 30 qps · 6,2 Mbps".
+export function qualityText({ height, fps, bps } = {}) {
+  const parts = [];
+  if (height) parts.push(`${height}p`);
+  if (fps) parts.push(`${Math.round(fps)} qps`);
+  if (bps) parts.push(`${(bps / 1e6).toFixed(1).replace('.', ',')} Mbps`);
+  return parts.join(' · ');
 }
 
 // Volume em % (0..200) -> ganho linear, ja considerando mudo e pausa.

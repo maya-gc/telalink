@@ -135,16 +135,16 @@ describe('Tunel SSH (localhost.run)', () => {
 
 describe('Preferencias de transmissao', () => {
   test('padrao simples: qualidade automatica, 30 fps, audio ligado, volume 100%', () => {
-    assert.deepEqual(DEFAULTS.prefs, { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100 });
+    assert.deepEqual(DEFAULTS.prefs, { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0 });
     assert.equal(DEFAULTS.tunnel, 'auto');
   });
 
   test('aceita valores validos e recusa os invalidos', () => {
-    const ok = applyUpdate(DEFAULTS, { tunnel: 'ssh', prefs: { quality: 'economica', fps: 15, volume: 150, audio: false, hint: 'detail' } }, { protectFn: (x) => x });
-    assert.deepEqual(ok.prefs, { quality: 'economica', fps: 15, hint: 'detail', audio: false, volume: 150 });
+    const ok = applyUpdate(DEFAULTS, { tunnel: 'ssh', prefs: { quality: 'original', fps: 15, volume: 150, audio: false, hint: 'detail', bitrate: 20 } }, { protectFn: (x) => x });
+    assert.deepEqual(ok.prefs, { quality: 'original', fps: 15, hint: 'detail', audio: false, volume: 150, bitrate: 20 });
     assert.equal(ok.tunnel, 'ssh');
     for (const bad of [{ tunnel: 'ngrok' }, { prefs: { quality: '4k' } }, { prefs: { fps: 24 } }, { prefs: { volume: 300 } },
-      { prefs: { volume: 1.5 } }, { prefs: { audio: 'sim' } }, { prefs: null }]) {
+      { prefs: { volume: 1.5 } }, { prefs: { audio: 'sim' } }, { prefs: null }, { prefs: { bitrate: 7 } }, { prefs: { bitrate: '8' } }, { prefs: { bitrate: 100 } }]) {
       assert.throws(() => applyUpdate(DEFAULTS, bad, { protectFn: (x) => x }), JSON.stringify(bad));
     }
   });

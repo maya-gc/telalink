@@ -6,6 +6,7 @@
 import { $, show, openSocket, describeTransport, TRANSPORT_LABEL, supportsWebCodecs } from './common.js';
 import { keyFromHash, deriveKeys, SecureChannel } from './crypto.js';
 import { RelayReceiver } from './relay.js';
+import { qualityText } from './media-util.js';
 
 const P2P_TIMEOUT_MS = 12_000;   // limite absoluto para a conexao direta/TURN
 const NO_RESPONSE_MS = 4_000;    // sem NENHUMA resposta nesse tempo = rede bloqueando
@@ -22,6 +23,7 @@ window.__telalink = {
   get transport() { return transport; },
   get stats() { return receiver ? { ...receiver.stats } : null; },
   get diag() { return diag; },
+  quality: () => measureQuality(),
 };
 const candType = (c) => (/ typ (\w+)/.exec(c?.candidate || '') || [])[1] || '?';
 
@@ -48,6 +50,33 @@ const pinEl = $('pin');
 pinEl.addEventListener('input', () => { pinEl.value = pinEl.value.replace(/\D/g, '').slice(0, 6); });
 pinEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
 $('btnJoin').onclick = join;
+
+// Qualidade recebida agora: resolucao, quadros por segundo e banda.
+let lastIn = null, lastFrames = null;
+async function measureQuality() {
+  if (transport === 'retransmissao' && receiver) {
+    const now = performance.now(), f = receiver.stats.framesDecoded, b = receiver.stats.bytes || 0;
+    const q = { height: $('relayCanvas').height, width: $('relayCanvas').width, fps: 0, bps: 0 };
+    if (lastFrames) { const dt = (now - lastFrames.t) / 1000; q.fps = (f - lastFrames.f) / dt; q.bps = ((b - lastFrames.b) * 8) / dt; }
+    lastFrames = { t: now, f, b };
+    return q;
+  }
+  if (!pc) return null;
+  let q = null;
+  try {
+    (await pc.getStats()).forEach((r) => {
+      if (r.type !== 'inbound-rtp' || r.kind !== 'video') return;
+      const bps = lastIn ? ((r.bytesReceived - lastIn.bytes) * 8 * 1000) / Math.max(1, r.timestamp - lastIn.t) : 0;
+      lastIn = { bytes: r.bytesReceived, t: r.timestamp };
+      q = { height: r.frameHeight, width: r.frameWidth, fps: r.framesPerSecond, bps };
+    });
+  } catch {}
+  return q;
+}
+setInterval(async () => {
+  const q = await measureQuality();
+  $('qualityTxt').textContent = q?.height ? ` · ${qualityText(q)}` : '';
+}, 2000);
 
 function setTransport(t) {
   transport = t;

@@ -1,5 +1,19 @@
 # Histórico de versões
 
+## 2.3.0 — 2026-10-28
+
+### Corrigido
+- **Imagem em 360p para quem assiste**: a transmissão começava com ~0,3 Mbps (padrão do navegador) e ficava em 640×360 por cerca de 15 s; o modo "movimento" ainda reduzia a resolução primeiro. Agora começa com banda alta e chega em **1080p em ~2 s** (medido em teste).
+- Trocar a qualidade durante a transmissão podia encolher a imagem duas vezes (ex.: 720p virava 480p). Agora a escala é calculada sobre a altura real dos quadros.
+- Captura limitava a largura a 16:9, cortando a resolução de monitores ultralargos.
+
+### Novo
+- Qualidades **Máxima (original, até 4K)**, **Muito alta (1440p)**, Alta (1080p), Média (720p), Econômica (480p) e Automática (até 1080p); banda maior em todas (ex.: 1080p até 8 Mbps, 4K até 25 Mbps; 60 qps ganham +50%).
+- **Limite de internet usada** ajustável (2 a 30 Mbps) em ⚙ Configurações.
+- Codec escolhido pelo que o PC codifica **por hardware** (VP9/H.264/AV1), senão VP9.
+- **Retransmissão**: H.264 ou VP9 por hardware quando disponível (VP8 como reserva), banda adaptativa (reduz rápido, sobe devagar) e resolução conforme a banda no modo automático.
+- **Indicador de qualidade**: quem assiste vê "1080p · 30 qps · 6,2 Mbps"; o painel mostra o mesmo por pessoa, com o codec e o motivo quando há limitação (internet ou processador).
+
 ## 2.2.0 — 2026-10-28
 
 ### Novo

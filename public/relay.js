@@ -9,12 +9,34 @@
 //               -> WebSocket binario -> servidor (so repassa, nao decifra)
 //  Espectador:  WebSocket -> AES-256-GCM -> VideoDecoder/AudioDecoder -> tela/som
 // =============================================================================
-import { packPacket, unpackPacket, KIND_VIDEO, KIND_AUDIO } from './media-util.js';
+import { packPacket, unpackPacket, KIND_VIDEO, KIND_AUDIO, adaptBitrate, relayHeightFor } from './media-util.js';
 
 const MAX_W = 1920;
 const MAX_H = 1080;
 const KEY_INTERVAL_MS = 3000;
 const OPUS_RATES = new Set([8000, 12000, 16000, 24000, 48000]);
+
+// Codecs da retransmissao, do melhor para o mais compativel. Os dois primeiros
+// so sao usados se o PC tiver codificador por HARDWARE (placa de video):
+// imagem melhor com pouco processador. VP8 funciona em qualquer navegador.
+export const RELAY_CODECS = [
+  { codec: 'avc1.640034', label: 'H.264', hardwareAcceleration: 'prefer-hardware', avc: { format: 'annexb' } },
+  { codec: 'vp09.00.51.08', label: 'VP9', hardwareAcceleration: 'prefer-hardware' },
+  { codec: 'vp8', label: 'VP8', hardwareAcceleration: 'no-preference' },
+];
+const VP8 = RELAY_CODECS[2];
+
+export async function pickRelayCodec({ width = 1920, height = 1080, bitrate = 8_000_000, framerate = 30 } = {}, candidates = RELAY_CODECS) {
+  if (typeof globalThis.VideoEncoder?.isConfigSupported !== 'function') return VP8;
+  for (const c of candidates) {
+    try {
+      const { codec, hardwareAcceleration, avc } = c;
+      const r = await VideoEncoder.isConfigSupported({ codec, hardwareAcceleration, ...(avc ? { avc } : {}), width, height, bitrate, framerate, latencyMode: 'realtime' });
+      if (r.supported) return c;
+    } catch {}
+  }
+  return VP8;
+}
 
 const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
 export function fitSize(w, h, maxW = MAX_W, maxH = MAX_H) {
@@ -24,8 +46,11 @@ export function fitSize(w, h, maxW = MAX_W, maxH = MAX_H) {
 
 // ----------------------------------------------------------------- HOST
 export class RelaySender {
-  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 2_500_000, maxH = MAX_H, fps = 30, onError = () => {} }) {
-    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, onError });
+  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 8_000_000, maxH = MAX_H, fps = 30, autoRes = false, codec = null, onError = () => {} }) {
+    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, autoRes, onError });
+    this.targetBitrate = bitrate;          // teto escolhido; this.bitrate = banda atual (adaptativa)
+    this.codec = codec;                    // definido em start() se nao vier pronto
+    this.rate = { frames: 0, bytes: 0, t: 0, fps: 0, bps: 0 };
     this.running = false;
     this.vseq = 0; this.aseq = 0;
     this.forceKey = true;
@@ -38,20 +63,43 @@ export class RelaySender {
     if (this.running) return;
     this.running = true;
     this.forceKey = true;
-    this._startVideo();
+    const ready = this.codec ? Promise.resolve(this.codec) : pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps });
+    ready.then((c) => { this.codec ||= c; if (this.running) this._startVideo(); });
     this._startAudio();
+    // A cada segundo: ajusta a banda pela fila de envio (aumenta devagar, reduz rapido).
+    this.adaptTimer = setInterval(() => this._adapt(), 1000);
+  }
+
+  _adapt() {
+    const r = this.rate, now = performance.now();
+    if (r.t) { const dt = (now - r.t) / 1000; r.fps = r.frames / dt; r.bps = (r.bytes * 8) / dt; }
+    r.t = now; r.frames = 0; r.bytes = 0;
+    const next = adaptBitrate(this.bitrate, { buffered: this.ws.bufferedAmount, maxBps: this.targetBitrate });
+    if (Math.abs(next - this.bitrate) / this.bitrate >= 0.07) {
+      this.bitrate = next;
+      this.reconfigure = true;             // muda so a banda: sem forcar quadro-chave
+    }
+  }
+
+  // Resolucao maxima atual (no automatico, acompanha a banda disponivel).
+  get effectiveMaxH() { return this.autoRes ? Math.min(this.maxH, relayHeightFor(this.bitrate)) : this.maxH; }
+
+  // Qualidade enviada agora (para o painel).
+  quality() {
+    return { width: this.vcfg?.width || 0, height: this.vcfg?.height || 0, fps: this.rate.fps, bps: this.rate.bps, codec: this.codec?.label || null, limit: this.bitrate < this.targetBitrate * 0.8 ? 'bandwidth' : null };
   }
 
   requestKeyframe() { this.forceKey = true; }
 
   setBitrate(bps) {
+    this.targetBitrate = bps;
     this.bitrate = bps;
-    if (this.venc && this.venc.state === 'configured') { this.vcfg = null; this.forceKey = true; }
+    this.reconfigure = true;
   }
 
   // Muda resolucao maxima/banda/quadros durante a transmissao.
-  setQuality({ maxH = this.maxH, bitrate = this.bitrate, fps = this.fps } = {}) {
-    this.maxH = maxH; this.fps = fps;
+  setQuality({ maxH = this.maxH, bitrate = this.targetBitrate, fps = this.fps, autoRes = this.autoRes } = {}) {
+    this.maxH = maxH; this.fps = fps; this.autoRes = autoRes;
     this.setBitrate(bitrate);
   }
 
@@ -67,6 +115,7 @@ export class RelaySender {
 
   stop() {
     this.running = false;
+    clearInterval(this.adaptTimer);
     for (const r of [this.vreader, this.areader]) try { r?.cancel(); } catch {}
     for (const e of [this.venc, this.aenc]) try { if (e && e.state !== 'closed') e.close(); } catch {}
     this.venc = this.aenc = null;
@@ -78,7 +127,7 @@ export class RelaySender {
     // Mantem a ordem dos pacotes mesmo com a cifragem assincrona.
     this.sendChain = this.sendChain.then(async () => {
       const pkt = await packetPromise;
-      if (this.ws.readyState === 1) { this.ws.send(pkt); this.stats.bytes += pkt.length; }
+      if (this.ws.readyState === 1) { this.ws.send(pkt); this.stats.bytes += pkt.length; if (pkt[0] === KIND_VIDEO) this.rate.bytes += pkt.length; }
     }).catch((err) => this.onError(err));
   }
 
@@ -86,6 +135,11 @@ export class RelaySender {
   _startVideo() {
     const track = this.stream.getVideoTracks()[0];
     if (!track) return;
+    this._makeEncoder();
+    this._attachVideo(track);
+  }
+
+  _makeEncoder() {
     this.venc = new VideoEncoder({
       output: (chunk) => {
         const data = new Uint8Array(chunk.byteLength);
@@ -94,13 +148,17 @@ export class RelaySender {
         this.stats.videoPackets++;
         this._send(packPacket(this.mediaKey, {
           kind: KIND_VIDEO, isKey, seq: this.vseq++, timestamp: chunk.timestamp, duration: chunk.duration || 0,
-          meta: isKey ? { codec: 'vp8', w: this.vcfg?.width, h: this.vcfg?.height } : null, data,
+          meta: isKey ? { codec: this.vcfg?.codec, w: this.vcfg?.width, h: this.vcfg?.height } : null, data,
         }));
       },
-      error: (e) => { this.vcfg = null; this.forceKey = true; this.onError(e); },
+      error: (e) => {
+        // Codificador falhou (ex.: placa de video recusou): volta ao VP8, que funciona sempre.
+        this.onError(e);
+        this.vcfg = null; this.forceKey = true;
+        if (this.codec !== VP8) this.codec = VP8;
+        if (this.running) this._makeEncoder();
+      },
     });
-
-    this._attachVideo(track);
   }
 
   _attachVideo(track) {
@@ -132,16 +190,20 @@ export class RelaySender {
 
   _encodeFrame(frame) {
     try {
-      if (!this.running || !this.venc || this.venc.state === 'closed') return;
-      const { w, h } = fitSize(frame.displayWidth, frame.displayHeight, Math.round((this.maxH * 16) / 9), this.maxH);
+      if (!this.running || !this.venc || this.venc.state === 'closed' || !this.codec) return;
+      const maxH = this.effectiveMaxH;
+      const { w, h } = fitSize(frame.displayWidth, frame.displayHeight, Math.round(maxH * 2.4), maxH);
       // Limita quadros por segundo conforme a qualidade escolhida.
       const nowMs = performance.now();
       if (!this.forceKey && this.lastFrameAt && nowMs - this.lastFrameAt < 1000 / this.fps - 4) return;
       this.lastFrameAt = nowMs;
-      if (!this.vcfg || this.vcfg.width !== w || this.vcfg.height !== h) {
-        this.vcfg = { codec: 'vp8', width: w, height: h, bitrate: this.bitrate, framerate: this.fps, latencyMode: 'realtime' };
+      const sizeChanged = !this.vcfg || this.vcfg.width !== w || this.vcfg.height !== h || this.vcfg.codec !== this.codec.codec;
+      if (sizeChanged || this.reconfigure) {
+        const { codec, hardwareAcceleration, avc } = this.codec;
+        this.vcfg = { codec, hardwareAcceleration, ...(avc ? { avc } : {}), width: w, height: h, bitrate: this.bitrate, framerate: this.fps, latencyMode: 'realtime' };
         this.venc.configure(this.vcfg);
-        this.forceKey = true;
+        this.reconfigure = false;
+        if (sizeChanged) this.forceKey = true;
       }
       const congested = this.ws.bufferedAmount > 4 * 1024 * 1024;
       if (this.venc.encodeQueueSize > 2 || (congested && !this.forceKey)) return; // descarta quadro
@@ -156,6 +218,7 @@ export class RelaySender {
       const keyFrame = this.forceKey || now - this.lastKey > KEY_INTERVAL_MS;
       if (keyFrame) { this.forceKey = false; this.lastKey = now; }
       this.venc.encode(input, { keyFrame });
+      this.rate.frames++;
       if (input !== frame) input.close();
     } finally {
       frame.close();
@@ -213,11 +276,12 @@ export class RelayReceiver {
     this.lastSeq = { [KIND_VIDEO]: -1, [KIND_AUDIO]: -1 };
     this.gotKey = false;
     this.playAt = 0;
-    this.stats = { framesDecoded: 0, audioDecoded: 0, rejected: 0, dropped: 0 };
+    this.stats = { framesDecoded: 0, audioDecoded: 0, rejected: 0, dropped: 0, bytes: 0 };
   }
 
   async handle(bytes) {
     let pkt;
+    this.stats.bytes += bytes.byteLength || bytes.length || 0;
     try { pkt = await unpackPacket(this.mediaKey, bytes); }
     catch { this.stats.rejected++; return; }          // adulterado ou chave errada: ignora
     // Anti-replay: descarta pacote repetido ou atrasado (seq sempre cresce).

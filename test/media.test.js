@@ -83,21 +83,78 @@ test('tela preta: so avisa depois de 4 amostras seguidas e avisa quando volta', 
   assert.equal(det.push(ok), false, 'imagem voltou');
 });
 
-import { QUALITY, captureConstraints, senderEncoding, gainFor, fitRect, inviteText, qualityPreset } from '../public/media-util.js';
+import { QUALITY, captureConstraints, senderEncoding, gainFor, fitRect, inviteText, qualityPreset, BITRATE_OPTIONS, maxKbpsFor,
+  degradationFor, withBitrateHints, orderCodecs, adaptBitrate, relayHeightFor, qualityText } from '../public/media-util.js';
+import { QUALITIES as QUALITY_KEYS_SERVER, BITRATES as BITRATES_SERVER } from '../src/settings.js';
 
-test('qualidade: predefinicoes simples e restricoes de captura coerentes', () => {
-  assert.deepEqual(Object.keys(QUALITY), ['auto', 'alta', 'media', 'economica']);
-  assert.deepEqual(captureConstraints('economica', 15), { width: { max: 853 }, height: { max: 480 }, frameRate: { ideal: 15, max: 15 } });
+test('qualidade: predefinicoes ate 4K e restricoes de captura coerentes', () => {
+  assert.deepEqual(Object.keys(QUALITY), ['auto', 'original', 'qhd', 'alta', 'media', 'economica']);
+  assert.deepEqual(QUALITY_KEYS_SERVER, Object.keys(QUALITY), 'servidor e pagina aceitam as mesmas qualidades');
+  assert.deepEqual(captureConstraints('economica', 15), { height: { max: 480 }, frameRate: { ideal: 15, max: 15 } }, 'so a altura: a proporcao da tela e mantida');
+  assert.equal(captureConstraints('original', 60).height.max, 2160);
   assert.equal(captureConstraints('alta', 60).frameRate.max, 60);
   assert.equal(captureConstraints('inexistente', 999).height.max, 1080, 'valor desconhecido cai no automatico');
   assert.equal(captureConstraints('auto', 999).frameRate.max, 30);
   assert.equal(qualityPreset('nada'), QUALITY.auto);
+  for (const q of Object.values(QUALITY)) assert.ok(q.startKbps >= 1000 && q.startKbps <= q.maxKbps, 'comeca com banda alta, abaixo do teto');
 });
 
-test('qualidade: envio reduz a escala da fonte e limita a banda', () => {
-  assert.deepEqual(senderEncoding('media', 30, 1080), { maxFramerate: 30, maxBitrate: 2_000_000, scaleResolutionDownBy: 1.5 });
-  assert.deepEqual(senderEncoding('auto', 60, 720), { maxFramerate: 60, scaleResolutionDownBy: 1 }, 'automatico nao limita banda');
+test('qualidade: envio sempre tem teto de banda e reduz escala so quando a fonte e maior', () => {
+  assert.deepEqual(senderEncoding('media', 30, 1080), { maxFramerate: 30, maxBitrate: 4_000_000, scaleResolutionDownBy: 1.5 });
+  assert.deepEqual(senderEncoding('media', 30, 720), { maxFramerate: 30, maxBitrate: 4_000_000, scaleResolutionDownBy: 1 }, 'captura ja em 720p: nao encolhe de novo');
+  assert.deepEqual(senderEncoding('auto', 60, 720), { maxFramerate: 60, maxBitrate: 12_000_000, scaleResolutionDownBy: 1 }, '60 qps ganham +50% de banda');
   assert.equal(senderEncoding('economica', 30, 2160).scaleResolutionDownBy, 4.5);
+  assert.equal(senderEncoding('original', 30, 2160).scaleResolutionDownBy, 1);
+  assert.equal(senderEncoding('original', 30, 2160, { limitMbps: 4 }).maxBitrate, 4_000_000, 'limite do usuario manda');
+  assert.equal(maxKbpsFor('alta', { limitMbps: 7 }), 8000, 'limite fora da lista e ignorado');
+  assert.deepEqual(BITRATE_OPTIONS, BITRATES_SERVER);
+});
+
+test('qualidade: o que cortar primeiro quando falta internet', () => {
+  assert.equal(degradationFor('auto', 'motion'), 'balanced');
+  assert.equal(degradationFor('auto', 'detail'), 'maintain-resolution');
+  assert.equal(degradationFor('alta', 'motion'), 'maintain-resolution', 'resolucao escolhida pelo usuario e mantida');
+});
+
+const SDP = ['v=0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2', 'a=fmtp:111 minptime=10;useinbandfec=1',
+  'm=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99', 'a=rtpmap:96 VP8/90000', 'a=rtpmap:97 rtx/90000', 'a=fmtp:97 apt=96',
+  'a=rtpmap:98 VP9/90000', 'a=fmtp:98 profile-id=0;x-google-max-bitrate=100', 'a=rtpmap:99 red/90000', ''].join('\r\n');
+
+test('SDP: banda inicial e maxima em todos os codecs de video (e so neles)', () => {
+  const out = withBitrateHints(SDP, { startKbps: 4000, maxKbps: 8000 });
+  const lines = out.split('\r\n');
+  assert.ok(lines.includes('a=fmtp:96 x-google-start-bitrate=4000;x-google-max-bitrate=8000'), 'VP8 sem fmtp ganha uma linha');
+  assert.ok(lines.includes('a=fmtp:98 profile-id=0;x-google-start-bitrate=4000;x-google-max-bitrate=8000'), 'VP9: mantem parametros e troca o teto antigo');
+  assert.ok(lines.includes('a=fmtp:97 apt=96'), 'rtx intocado');
+  assert.ok(lines.includes('a=fmtp:111 minptime=10;useinbandfec=1'), 'audio intocado');
+  assert.ok(!lines.some((l) => l.startsWith('a=fmtp:99')), 'red intocado');
+  assert.equal(lines.indexOf('a=fmtp:96 x-google-start-bitrate=4000;x-google-max-bitrate=8000'), lines.indexOf('a=rtpmap:96 VP8/90000') + 1);
+  assert.equal(withBitrateHints(out, { startKbps: 4000, maxKbps: 8000 }), out, 'aplicar duas vezes nao duplica');
+});
+
+test('codecs: hardware primeiro; sem hardware, VP9 > H.264 > VP8; auxiliares no fim', () => {
+  const c = (mimeType, sdpFmtpLine = '') => ({ mimeType, sdpFmtpLine });
+  const list = [c('video/VP8'), c('video/rtx'), c('video/H264', 'profile-level-id=42e01f'), c('video/H264', 'profile-level-id=640c1f'), c('video/VP9'), c('video/AV1')];
+  const names = (l) => l.map((x) => `${x.mimeType.split('/')[1]}${/640c/.test(x.sdpFmtpLine) ? '-high' : ''}`);
+  assert.deepEqual(names(orderCodecs(list)), ['VP9', 'H264-high', 'H264', 'VP8', 'AV1', 'rtx']);
+  assert.deepEqual(names(orderCodecs(list, new Set(['video/h264']))), ['H264-high', 'H264', 'VP9', 'VP8', 'AV1', 'rtx']);
+  assert.deepEqual(names(orderCodecs(list, new Set(['video/av1', 'video/vp9']))).slice(0, 2), ['VP9', 'AV1']);
+});
+
+test('retransmissao: banda adaptativa (reduz rapido, sobe devagar) e resolucao conforme a banda', () => {
+  assert.equal(adaptBitrate(8e6, { buffered: 2e6, maxBps: 8e6 }), 5.6e6);
+  assert.equal(adaptBitrate(8e6, { buffered: 5e5, maxBps: 8e6 }), 7.2e6);
+  assert.equal(adaptBitrate(4e6, { buffered: 0, maxBps: 8e6 }), 4.32e6);
+  assert.equal(adaptBitrate(8e6, { buffered: 0, maxBps: 8e6 }), 8e6, 'nunca passa do teto');
+  assert.equal(adaptBitrate(6e5, { buffered: 5e6, maxBps: 8e6 }), 5e5, 'nunca abaixo do minimo');
+  assert.equal(adaptBitrate(5e6, { buffered: 2e5, maxBps: 8e6 }), 5e6, 'zona estavel');
+  assert.deepEqual([20e6, 8e6, 4e6, 2e6, 1e6].map(relayHeightFor), [2160, 1440, 1080, 720, 480]);
+});
+
+test('texto de qualidade para o painel e quem assiste', () => {
+  assert.equal(qualityText({ height: 1080, fps: 29.6, bps: 6_240_000 }), '1080p · 30 qps · 6,2 Mbps');
+  assert.equal(qualityText({ height: 720 }), '720p');
+  assert.equal(qualityText(), '');
 });
 
 test('volume: 0 a 200%, mudo e pausa silenciam', () => {

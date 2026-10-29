@@ -23,17 +23,19 @@ A janela preta fica aberta de propósito: ela é o servidor.
 |---|---|
 | **Pausar** | Quem assiste vê "Transmissão pausada" (sem imagem nem som seus) |
 | **Som / volume** | Liga/desliga e ajusta de 0 a 200% o som enviado |
-| **Qualidade** | Automática, Alta (1080p), Média (720p) ou Econômica (480p) — muda na hora |
+| **Qualidade** | Automática (até 1080p), Máxima (original, até 4K), 1440p, 1080p, 720p ou 480p — muda na hora |
 | **Trocar** | Troca de tela/janela ou passa para imagens, sem derrubar ninguém |
 | **Imagens** | Mostre fotos/prints como slides (◀ ▶), adicione mais a qualquer momento |
 | **Trancar sala** | Ninguém novo entra; quem já está continua |
 | **Remover** | Tira uma pessoa da transmissão |
 
+O painel mostra, para cada pessoa, a qualidade que está chegando (ex.: `1080p · 30 qps · 6,2 Mbps · VP9`) e avisa se a internet ou o processador estão limitando. Quem assiste vê o mesmo na barra de cima.
+
 Quem assiste tem: volume e mudo, **Caber / Preencher / Tamanho real**, janela **flutuante** (picture-in-picture) e **tela cheia** (teclas F, M, A; duplo-clique = tela cheia). As preferências ficam guardadas no navegador dela.
 
 ### ⚙ Configurações (opcional)
 
-Tudo tem padrão bom; só abra se quiser mudar: qualidade, quadros por segundo (15/30/60), tipo de conteúdo (vídeo × texto), som e volume inicial, segurança (Padrão × Máxima) e tipo de link externo (automático, Cloudflare, SSH ou desligado). As opções avançadas de TURN ficam em **Opções avançadas de conexão**.
+Tudo tem padrão bom; só abra se quiser mudar: qualidade, quadros por segundo (15/30/60), limite de internet usada (2 a 30 Mbps), tipo de conteúdo (vídeo × texto), som e volume inicial, segurança (Padrão × Máxima) e tipo de link externo (automático, Cloudflare, SSH ou desligado). As opções avançadas de TURN ficam em **Opções avançadas de conexão**.
 
 | Arquivo | O que faz |
 |---|---|

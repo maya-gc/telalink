@@ -15,7 +15,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export const PROVIDERS = ['none', 'cloudflare', 'coturn', 'static'];
-export const QUALITIES = ['auto', 'alta', 'media', 'economica'];
+export const QUALITIES = ['auto', 'original', 'qhd', 'alta', 'media', 'economica'];
+export const BITRATES = [0, 2, 4, 8, 12, 20, 30];   // limite de banda em Mbps (0 = automatico)
 export const SECRET_FIELDS = { cloudflare: 'apiToken', coturn: 'secret', static: 'credential' };
 
 export const DEFAULTS = Object.freeze({
@@ -29,7 +30,7 @@ export const DEFAULTS = Object.freeze({
   },
   capGB: 800,                       // trava de consumo mensal estimado de TURN (null = sem trava)
   tunnel: 'auto',                   // link externo: auto | cloudflare | ssh | off
-  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100 },
+  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0 },
   usage: { month: '', bytes: 0 },
 });
 
@@ -114,6 +115,7 @@ export function applyUpdate(current, input, { protectFn = protect } = {}) {
     if (p.fps !== undefined) { if (![15, 30, 60].includes(p.fps)) throw new Error('quadros por segundo invalidos'); out.fps = p.fps; }
     if (p.hint !== undefined) { if (!['motion', 'detail'].includes(p.hint)) throw new Error('tipo de conteudo invalido'); out.hint = p.hint; }
     if (p.audio !== undefined) { if (typeof p.audio !== 'boolean') throw new Error('audio invalido'); out.audio = p.audio; }
+    if (p.bitrate !== undefined) { if (!BITRATES.includes(p.bitrate)) throw new Error('limite de banda invalido'); out.bitrate = p.bitrate; }
     if (p.volume !== undefined) { if (!(Number.isInteger(p.volume) && p.volume >= 0 && p.volume <= 200)) throw new Error('volume deve ser de 0 a 200'); out.volume = p.volume; }
     next.prefs = out;
   }
