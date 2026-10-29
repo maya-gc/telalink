@@ -30,7 +30,7 @@ export const DEFAULTS = Object.freeze({
   },
   capGB: 800,                       // trava de consumo mensal estimado de TURN (null = sem trava)
   tunnel: 'auto',                   // link externo: auto | cloudflare | ssh | off
-  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0 },
+  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true },
   usage: { month: '', bytes: 0 },
 });
 
@@ -115,6 +115,7 @@ export function applyUpdate(current, input, { protectFn = protect } = {}) {
     if (p.fps !== undefined) { if (![15, 30, 60].includes(p.fps)) throw new Error('quadros por segundo invalidos'); out.fps = p.fps; }
     if (p.hint !== undefined) { if (!['motion', 'detail'].includes(p.hint)) throw new Error('tipo de conteudo invalido'); out.hint = p.hint; }
     if (p.audio !== undefined) { if (typeof p.audio !== 'boolean') throw new Error('audio invalido'); out.audio = p.audio; }
+    if (p.notify !== undefined) { if (typeof p.notify !== 'boolean') throw new Error('aviso sonoro invalido'); out.notify = p.notify; }
     if (p.bitrate !== undefined) { if (!BITRATES.includes(p.bitrate)) throw new Error('limite de banda invalido'); out.bitrate = p.bitrate; }
     if (p.volume !== undefined) { if (!(Number.isInteger(p.volume) && p.volume >= 0 && p.volume <= 200)) throw new Error('volume deve ser de 0 a 200'); out.volume = p.volume; }
     next.prefs = out;

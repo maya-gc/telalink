@@ -26,7 +26,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ROOT_DIR = normalize(join(__dirname, '..'));
 export const PUBLIC_DIR = join(ROOT_DIR, 'public');
 
-export const MAX_PIN_ATTEMPTS = 10;          // por sala
+export const MAX_PIN_ATTEMPTS = 10;          // por sala; depois, pausa de PIN_LOCK_MS
+export const PIN_LOCK_MS = 5 * 60 * 1000;
+export const MAX_WS_PER_IP = 20;             // conexoes simultaneas por IP
+export const UNAUTH_TIMEOUT_MS = 60 * 1000;  // conexao que nao entrou em sala e fechada
+export const MESSAGE_RATE = { perSec: 30, burst: 300 }; // mensagens de texto por conexao
 export const MAX_IP_FAILURES = 30;           // por IP...
 export const IP_WINDOW_MS = 15 * 60 * 1000;  // ...nesta janela
 export const ORPHAN_ROOM_MS = 10 * 60 * 1000;
@@ -63,7 +67,10 @@ const SECURITY_HEADERS = {
   'cache-control': 'no-store',
   'content-security-policy': CSP,
   'cross-origin-opener-policy': 'same-origin',
-  'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), usb=(), serial=(), hid=(), bluetooth=(), payment=(), display-capture=(self), fullscreen=(self), picture-in-picture=(self), clipboard-write=(self)',
+  'cross-origin-resource-policy': 'same-origin',
+  'x-permitted-cross-domain-policies': 'none',
+  'origin-agent-cluster': '?1',
 };
 
 // Rotas que so o dono do PC pode usar.
@@ -96,9 +103,17 @@ export function isLocal(req) {
   return !isExternal(req) && LOCAL_HOSTNAMES.has(hostnameOf(req.headers.host));
 }
 
-export function clientIp(req) {
+// IP de quem chegou pelo tunel. So confia no cabecalho que o PROVEDOR ATIVO
+// escreve (um visitante pode inventar cabecalhos):
+//   Cloudflare: CF-Connecting-IP (a Cloudflare sobrescreve o que vier do visitante);
+//   outros: o ULTIMO item de X-Forwarded-For (acrescentado pelo proxy, nao pelo visitante).
+export function clientIp(req, provider = null) {
   const h = req.headers;
-  return h['cf-connecting-ip'] || (h['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
+  const direct = req.socket.remoteAddress;
+  if (!isExternal(req)) return direct;
+  if (provider === 'cloudflare' && h['cf-connecting-ip']) return String(h['cf-connecting-ip']).trim();
+  const xff = String(h['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+  return xff.length ? xff[xff.length - 1] : direct;
 }
 
 export function originOk(req) {
@@ -135,7 +150,11 @@ export function createServer({
   settings = null,
   onRequest = null,
   onSettingsChanged = () => {},
+  limits: limitsIn = {},
 } = {}) {
+  // Limites (ajustaveis nos testes).
+  const limits = { pinLockMs: PIN_LOCK_MS, maxWsPerIp: MAX_WS_PER_IP, unauthTimeoutMs: UNAUTH_TIMEOUT_MS, messageRate: MESSAGE_RATE,
+    heartbeatMs: 25_000, idleMs: 75_000, ...limitsIn };
   const rooms = new Map();
   const ipFailures = new Map(); // ip -> { count, resetAt }
 
@@ -170,7 +189,7 @@ export function createServer({
         turnError: iceProvider.lastError || null,
         tunnel: settings.data.tunnel,
       } : { defaultMode: 'auto', provider: 'none', capGB: null, usageGB: 0, overCap: false, turnError: null, tunnel: 'auto' };
-      const prefs = settings ? settings.data.prefs : { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100 };
+      const prefs = settings ? settings.data.prefs : { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true };
       return json(res, 200, { tunnel: getTunnelInfo(), defaultMode: conexao.defaultMode, conexao, prefs });
     }
     if (pathname === '/api/settings') {
@@ -238,7 +257,8 @@ export function createServer({
   externalServer.on('connection', (sock) => { sock.__telalinkExternal = true; });
 
   // ---------------------------------------------------------------- WebSocket
-  const wss = attachWebSocket([server, externalServer]);
+  const wss = attachWebSocket([server, externalServer], { messageRate: limits.messageRate, heartbeatMs: limits.heartbeatMs, idleMs: limits.idleMs });
+  const wsPerIp = new Map();
   wss.verify = (req) => {
     if (originOk(req)) return true;
     const t = getTunnelInfo();
@@ -285,7 +305,18 @@ export function createServer({
   wss.on('connection', (ws, req) => {
     ws.meta = { role: null, roomId: null, viewerId: null };
     ws.local = isLocal(req);
-    ws.ip = clientIp(req);
+    ws.ip = clientIp(req, getTunnelInfo().provider);
+    // Limite de conexoes simultaneas por IP (o PC local nao tem limite).
+    if (!ws.local) {
+      const n = (wsPerIp.get(ws.ip) || 0) + 1;
+      wsPerIp.set(ws.ip, n);
+      ws.on('close', () => { const m = (wsPerIp.get(ws.ip) || 1) - 1; if (m <= 0) wsPerIp.delete(ws.ip); else wsPerIp.set(ws.ip, m); });
+      if (n > limits.maxWsPerIp) { ws.close(); return; }
+    }
+    // Quem conecta e nao entra em nenhuma sala e desconectado.
+    const unauth = setTimeout(() => { if (!ws.meta.role) ws.close(); }, limits.unauthTimeoutMs);
+    unauth.unref?.();
+    ws.on('close', () => clearTimeout(unauth));
 
     ws.on('binary', (buf) => {
       const room = rooms.get(ws.meta.roomId);
@@ -315,11 +346,16 @@ export function createServer({
           if (ws.meta.role) return;
           if (ipBlocked(ws.ip)) return send(ws, { type: 'error', reason: 'bloqueado' });
           if (!room) { ipFail(ws.ip); return send(ws, { type: 'error', reason: 'sala-inexistente' }); }
-          if (room.attempts >= MAX_PIN_ATTEMPTS) return send(ws, { type: 'error', reason: 'bloqueado' });
+          // Muitas tentativas erradas: pausa de alguns minutos (nao trava a sala
+          // para sempre — senao qualquer um com o link derrubaria a transmissao).
+          if (room.lockUntil && Date.now() < room.lockUntil) return send(ws, { type: 'error', reason: 'bloqueado' });
           if (!pinMatches(room.roomKey, room.pinTag, msg.pin)) {
             room.attempts++;
+            room.totalFailures = (room.totalFailures || 0) + 1;
             ipFail(ws.ip);
-            return send(ws, { type: 'error', reason: 'pin-invalido' });
+            if (room.attempts >= MAX_PIN_ATTEMPTS) { room.lockUntil = Date.now() + limits.pinLockMs; room.attempts = 0; }
+            send(room.host, { type: 'pin-failures', count: room.totalFailures, lockedUntil: room.lockUntil || 0 });
+            return send(ws, { type: 'error', reason: room.lockUntil > Date.now() ? 'bloqueado' : 'pin-invalido' });
           }
           if (room.locked) return send(ws, { type: 'error', reason: 'sala-trancada' });
           if (room.viewers.size >= MAX_VIEWERS) return send(ws, { type: 'error', reason: 'sala-cheia' });
@@ -365,6 +401,15 @@ export function createServer({
           setTimeout(() => v.close(), 50);
           return send(ws, { type: 'viewer-left', viewerId: msg.viewerId });
         }
+        case 'new-pin': {
+          // Host gera um PIN novo (ex.: alguem esta tentando adivinhar). Quem ja
+          // assiste continua; tentativas e pausa sao zeradas.
+          if (ws.meta.role !== 'host' || !room) return;
+          const pin = generatePin();
+          room.pinTag = pinTag(room.roomKey, pin);
+          room.attempts = 0; room.lockUntil = 0; room.totalFailures = 0;
+          return send(ws, { type: 'pin', pin });
+        }
         case 'lock': {
           // Host tranca/destranca a sala para novas entradas.
           if (ws.meta.role !== 'host' || !room) return;
@@ -406,7 +451,7 @@ export function createServer({
     try { settings?.save(); } catch {}
   }, 60 * 1000);
   sweeper.unref();
-  server.on('close', () => clearInterval(sweeper));
+  server.on('close', () => { clearInterval(sweeper); clearInterval(wss.heartbeat); });
 
   return { server, externalServer, rooms, wss };
 }

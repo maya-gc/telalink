@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>TelaLink</title>
 <link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 </head>
 <body class="page">
 <div class="wrap">
@@ -45,15 +46,22 @@
       </div>
 
       <div class="invite">
-        <div class="invite-pin"><span class="hint">PIN</span><span class="pin" id="pinView">------</span></div>
+        <div class="invite-pin"><span class="hint">PIN</span><span class="pin" id="pinView">------</span><button id="btnNewPin" class="ghost small" title="Gera outro PIN; quem já está assistindo continua">↻ Novo PIN</button></div>
         <div class="invite-link">
           <input id="shareLink" class="mono" type="text" readonly aria-label="Link para assistir" />
           <div class="row">
             <button id="btnCopyInvite">Copiar convite</button>
             <button id="btnCopyLink" class="ghost">Só o link</button>
+            <button id="btnQr" class="ghost" aria-expanded="false" aria-controls="qrBox">📱 QR code</button>
           </div>
         </div>
       </div>
+      <div id="qrBox" class="qr hidden">
+        <canvas id="qrCanvas" width="232" height="232" aria-label="QR code do link para assistir"></canvas>
+        <small class="hint">Aponte a câmera do celular para abrir o link. O PIN continua sendo pedido.</small>
+      </div>
+      <div id="linkAlert"></div>
+      <div id="pinAlert"></div>
       <div id="toast" class="toast hidden" role="status"></div>
       <small class="hint">O convite tem o link e o PIN. Cole no WhatsApp ou e-mail. A chave secreta fica na parte do link depois do <b>#</b> e nunca é enviada a servidores.</small>
     </div>
@@ -125,6 +133,7 @@
     <fieldset>
       <legend>Áudio</legend>
       <label class="opt"><input type="checkbox" id="optAudio" /> Incluir o som do computador</label>
+      <label class="opt"><input type="checkbox" id="optNotify" /> Tocar um aviso curto quando alguém entrar ou sair</label>
       <label class="field"><span>Volume inicial: <b id="optVolumeTxt">100%</b></span><input id="optVolume" type="range" min="0" max="200" step="5" /></label>
       <small class="hint">💡 Para o som ir junto, escolha “Aba” ou “Tela inteira” e marque “Compartilhar áudio” na janela do navegador.</small>
     </fieldset>

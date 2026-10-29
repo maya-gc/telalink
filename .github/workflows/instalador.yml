@@ -1,0 +1,87 @@
+# =============================================================================
+#  Instalacao automatica com downloads REAIS (nodejs.org e GitHub/Cloudflare)
+#  em Windows, macOS e Linux. Roda a cada envio e toda semana: se um fornecedor
+#  mudar algo (nome de arquivo, assinatura digital, formato da lista de hashes),
+#  o problema aparece aqui antes de chegar a quem usa.
+# =============================================================================
+name: instalador
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 9 * * 1'   # segundas, 06:17 em Brasilia
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instalador-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  instalar:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Windows - baixa o Node.js oficial (SHA-256 + assinatura OpenJS)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set PSModulePath=
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\instalar-node.ps1 -Dest "%RUNNER_TEMP%\rt" -Force
+          if errorlevel 1 exit /b 1
+          set /p TL_NODE=<"%RUNNER_TEMP%\rt\node-path.txt"
+          "%TL_NODE%" --version
+          echo TL_NODE=%TL_NODE%>>"%GITHUB_ENV%"
+
+      - name: macOS/Linux - baixa o Node.js oficial (SHA-256; codesign no macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          TELALINK_FORCE=1 TELALINK_RUNTIME="$RUNNER_TEMP/rt" bash scripts/instalar-node.sh
+          TL_NODE="$(cat "$RUNNER_TEMP/rt/node-path.txt")"
+          "$TL_NODE" --version
+          echo "TL_NODE=$TL_NODE" >> "$GITHUB_ENV"
+
+      - name: Baixa o cloudflared oficial (SHA-256 do GitHub + assinatura)
+        shell: bash
+        env:
+          PSModulePath: ''
+        run: |
+          "$TL_NODE" --input-type=module -e "
+            const { download } = await import('./scripts/baixar-cloudflared.js');
+            const r = await download({ dest: process.env.RUNNER_TEMP + '/rt' });
+            console.log('ok', r.path, r.version);
+          "
+          ls -la "$RUNNER_TEMP/rt"
+          "$RUNNER_TEMP/rt/cloudflared$([ "$RUNNER_OS" = Windows ] && echo .exe)" --version
+
+      - name: O TelaLink encontra o cloudflared baixado
+        shell: bash
+        env:
+          PSModulePath: ''
+        run: |
+          "$TL_NODE" --input-type=module -e "
+            const { findCloudflared } = await import('./src/tunnel.js');
+            const { spawnSync } = await import('node:child_process');
+            // ignora um cloudflared que o runner ja tenha no PATH: so vale o baixado
+            const run = (cmd, args, o) => (cmd === 'where' || cmd === 'which' ? { status: 1 } : spawnSync(cmd, args, o));
+            const f = findCloudflared({ runtimeDir: process.env.RUNNER_TEMP + '/rt', env: {}, run });
+            console.log(f);
+            if (!f || (process.platform === 'win32' && !f.verified)) process.exit(1);
+          "
+
+      - name: Autoteste com o Node.js baixado
+        shell: bash
+        env:
+          TUNNEL: "0"
+        run: '"$TL_NODE" scripts/selfcheck.js'

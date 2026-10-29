@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,7 +55,11 @@ describe('Escolha do link externo', () => {
     const t = m.create.ssh({ port: 1, bin: '/x', log: () => {} });
     assert.equal(t.constructor.name, 'SshTunnel');
     assert.ok(t.args().join(' ').includes(join('/tmp/telalink-x', 'known_hosts')));
-    assert.equal(m.create.cloudflare({ port: 1, bin: '/x' }).constructor.name, 'Tunnel');
+    const cf = m.create.cloudflare({ port: 1, bin: '/x' });
+    assert.equal(cf.constructor.name, 'Tunnel');
+    const a = cf.args();
+    assert.ok(a.includes('--config') && a[a.indexOf('--config') + 1].endsWith('cloudflared-telalink.yml'), 'configuracao isolada da pessoal');
+    assert.match(readFileSync(a[a.indexOf('--config') + 1], 'utf8'), /\{\}/);
   });
 
   test('automatico: Cloudflare se instalado; senao SSH (sem instalar nada)', () => {
@@ -110,6 +114,8 @@ describe('Tunel SSH (localhost.run)', () => {
     assert.equal(await url, 'https://f00dcafe1234ab.lhr.life');
     const a = tun.args();
     assert.ok(a.includes('StrictHostKeyChecking=accept-new'), 'chave do servidor fica gravada (detecta troca)');
+    for (const opt of ['PubkeyAuthentication=no', 'IdentitiesOnly=yes', 'IdentityAgent=none']) assert.ok(a.includes(opt), `privacidade: ${opt}`);
+    assert.equal(a[a.indexOf('-F') + 1], 'none', 'ignora a configuracao SSH pessoal');
     assert.ok(a.includes(`UserKnownHostsFile=${join(dir, 'known_hosts')}`), 'known_hosts proprio, fora do usuario');
     assert.ok(a.includes('80:127.0.0.1:8081'), 'so a porta externa e publicada');
   });
@@ -135,16 +141,16 @@ describe('Tunel SSH (localhost.run)', () => {
 
 describe('Preferencias de transmissao', () => {
   test('padrao simples: qualidade automatica, 30 fps, audio ligado, volume 100%', () => {
-    assert.deepEqual(DEFAULTS.prefs, { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0 });
+    assert.deepEqual(DEFAULTS.prefs, { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true });
     assert.equal(DEFAULTS.tunnel, 'auto');
   });
 
   test('aceita valores validos e recusa os invalidos', () => {
     const ok = applyUpdate(DEFAULTS, { tunnel: 'ssh', prefs: { quality: 'original', fps: 15, volume: 150, audio: false, hint: 'detail', bitrate: 20 } }, { protectFn: (x) => x });
-    assert.deepEqual(ok.prefs, { quality: 'original', fps: 15, hint: 'detail', audio: false, volume: 150, bitrate: 20 });
+    assert.deepEqual(ok.prefs, { quality: 'original', fps: 15, hint: 'detail', audio: false, volume: 150, bitrate: 20, notify: true });
     assert.equal(ok.tunnel, 'ssh');
     for (const bad of [{ tunnel: 'ngrok' }, { prefs: { quality: '4k' } }, { prefs: { fps: 24 } }, { prefs: { volume: 300 } },
-      { prefs: { volume: 1.5 } }, { prefs: { audio: 'sim' } }, { prefs: null }, { prefs: { bitrate: 7 } }, { prefs: { bitrate: '8' } }, { prefs: { bitrate: 100 } }]) {
+      { prefs: { volume: 1.5 } }, { prefs: { audio: 'sim' } }, { prefs: null }, { prefs: { bitrate: 7 } }, { prefs: { bitrate: '8' } }, { prefs: { bitrate: 100 } }, { prefs: { notify: 'sim' } }]) {
       assert.throws(() => applyUpdate(DEFAULTS, bad, { protectFn: (x) => x }), JSON.stringify(bad));
     }
   });

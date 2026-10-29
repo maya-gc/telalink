@@ -69,6 +69,9 @@ class WSConn extends EventEmitter {
     this.maxPayload = MAX_PAYLOAD;
     this._buf = Buffer.alloc(0);
     this._frag = null; // { opcode, parts: [], size }
+    this.lastSeen = Date.now();          // ultimo dado recebido (para o "ping" de vida)
+    this.msgRate = null;                 // { perSec, burst } limita mensagens de texto
+    this._tokens = 0; this._tokensAt = Date.now();
     socket.setNoDelay(true);
     socket.on('data', (d) => this._onData(d));
     // Cliente sumiu (FIN) sem frame de close: fecha do nosso lado tambem.
@@ -86,6 +89,7 @@ class WSConn extends EventEmitter {
   get bufferedAmount() { return this.socket.writableLength; }
 
   _onData(chunk) {
+    this.lastSeen = Date.now();
     this._buf = Buffer.concat([this._buf, chunk]);
     if (this._buf.length > this.maxPayload + 14) { this.close(); return; }
     while (true) {
@@ -115,7 +119,20 @@ class WSConn extends EventEmitter {
     }
   }
 
+  // Limite de mensagens de texto por conexao (balde de fichas): quem inunda e desconectado.
+  _allowMessage() {
+    if (!this.msgRate) return true;
+    const now = Date.now();
+    const { perSec, burst } = this.msgRate;
+    this._tokens = Math.min(burst, this._tokens + ((now - this._tokensAt) / 1000) * perSec);
+    this._tokensAt = now;
+    if (this._tokens < 1) return false;
+    this._tokens -= 1;
+    return true;
+  }
+
   _deliver(opcode, payload) {
+    if (opcode === 0x1 && !this._allowMessage()) { this.emit('flood'); this.close(); return; }
     if (opcode === 0x1) this.emit('message', payload.toString('utf8'));
     else this.emit('binary', payload);
   }
@@ -126,6 +143,7 @@ class WSConn extends EventEmitter {
   }
 
   send(text) { this._write(Buffer.from(String(text), 'utf8'), 0x1); }
+  ping() { this._write(Buffer.alloc(0), 0x9); }
   sendBinary(buf) { this._write(Buffer.isBuffer(buf) ? buf : Buffer.from(buf), 0x2); }
 
   close() {
@@ -139,11 +157,24 @@ class WSConn extends EventEmitter {
 }
 
 // Liga o "upgrade" HTTP ao WebSocket e emite 'connection' (conn, req).
-export function attachWebSocket(httpServers) {
+//  heartbeatMs: envia "ping" periodico (navegadores respondem sozinhos). Mantem a
+//               conexao viva nos tuneis (que derrubam conexoes paradas) e
+//  idleMs:      desconecta quem nao manda nada ha muito tempo (conexao morta).
+//  maxClients:  limite de conexoes simultaneas (protege a memoria).
+export function attachWebSocket(httpServers, { heartbeatMs = 25_000, idleMs = 75_000, maxClients = 500, messageRate = null } = {}) {
   const list = Array.isArray(httpServers) ? httpServers : [httpServers];
   const emitter = new EventEmitter();
   emitter.clients = new Set();
-  emitter.terminateAll = () => { for (const c of emitter.clients) c.terminate(); };
+  emitter.maxClients = maxClients;
+  emitter.terminateAll = () => { clearInterval(emitter.heartbeat); for (const c of emitter.clients) c.terminate(); };
+  emitter.heartbeat = setInterval(() => {
+    const now = Date.now();
+    for (const c of emitter.clients) {
+      if (now - c.lastSeen > idleMs) c.terminate();
+      else c.ping();
+    }
+  }, heartbeatMs);
+  emitter.heartbeat.unref();
   emitter.on('connection', (c) => {
     emitter.clients.add(c);
     c.on('close', () => emitter.clients.delete(c));
@@ -152,6 +183,9 @@ export function attachWebSocket(httpServers) {
     const key = req.headers['sec-websocket-key'];
     if (!key || (req.headers.upgrade || '').toLowerCase() !== 'websocket') {
       socket.destroy(); return;
+    }
+    if (emitter.clients.size >= emitter.maxClients) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); return;
     }
     if (emitter.verify && !emitter.verify(req)) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return;
@@ -162,7 +196,9 @@ export function attachWebSocket(httpServers) {
       'Connection: Upgrade\r\n' +
       `Sec-WebSocket-Accept: ${acceptKey(key)}\r\n\r\n`
     );
-    emitter.emit('connection', new WSConn(socket), req);
+    const conn = new WSConn(socket);
+    if (messageRate) conn.msgRate = messageRate, conn._tokens = messageRate.burst;
+    emitter.emit('connection', conn, req);
   };
   for (const srv of list) srv.on('upgrade', onUpgrade);
   return emitter;

@@ -117,7 +117,7 @@ describe('PIN', () => {
     const v = wsClient(app.ws); await v.opened;
     for (let i = 0; i < MAX_PIN_ATTEMPTS; i++) {
       v.json({ type: 'viewer-join', roomId: room.roomId, pin: wrong });
-      assert.equal((await v.next()).reason, 'pin-invalido');
+      assert.equal((await v.next()).reason, i < MAX_PIN_ATTEMPTS - 1 ? 'pin-invalido' : 'bloqueado');
     }
     // Agora nem o PIN certo entra.
     v.json({ type: 'viewer-join', roomId: room.roomId, pin: room.pin });

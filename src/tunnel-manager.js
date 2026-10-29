@@ -7,17 +7,27 @@
 // =============================================================================
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { Tunnel, SshTunnel, findCloudflared, findSsh, WINGET_ID } from './tunnel.js';
 
 export const TUNNEL_CHOICES = ['auto', 'cloudflare', 'ssh', 'off'];
 export const PROVIDER_NAMES = { cloudflare: 'Cloudflare', ssh: 'SSH (localhost.run)' };
+
+// Configuracao vazia do cloudflared, so do TelaLink.
+export function isolatedConfig(dataDir) {
+  const file = join(dataDir, 'cloudflared-telalink.yml');
+  try {
+    if (!existsSync(file)) { mkdirSync(dataDir, { recursive: true }); writeFileSync(file, '# TelaLink: configuracao vazia (isola o tunel rapido da configuracao pessoal)\n{}\n'); }
+    return file;
+  } catch { return null; }
+}
 
 export class TunnelManager extends EventEmitter {
   constructor({
     port, dataDir, getChoice = () => 'auto', log = () => {},
     find = { cloudflare: () => findCloudflared(), ssh: () => findSsh() },
     create = {
-      cloudflare: (o) => new Tunnel(o),
+      cloudflare: (o) => new Tunnel({ ...o, configFile: isolatedConfig(dataDir) }),
       ssh: (o) => new SshTunnel({ ...o, knownHostsFile: join(dataDir, 'known_hosts') }),
     },
   }) {

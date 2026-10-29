@@ -1,6 +1,6 @@
 {
   "name": "telalink",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "TelaLink: compartilhamento de tela seguro por link, com criptografia de ponta a ponta.",
   "type": "module",
   "main": "src/server.js",

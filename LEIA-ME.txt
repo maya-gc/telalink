@@ -1,12 +1,12 @@
 TELALINK - uso rapido
 =====================
 
-1. Precisa do Node.js instalado (uma vez so): https://nodejs.org
+1. Nao precisa instalar nada antes.
 
 2. De duplo-clique em  Iniciar.bat  (clique 1)
    - A janela preta FICA ABERTA: ela e o servidor. Fechou, parou.
-   - Nao precisa instalar mais nada: o link externo usa o SSH que
-     ja vem no Windows 10/11.
+   - Na primeira vez ele baixa sozinho o que falta (Node.js e
+     cloudflared oficiais, conferidos), sem pedir administrador.
 
 3. No painel, clique em "Minha tela" ou "Imagens" (clique 2) e
    escolha o que mostrar (clique 3).

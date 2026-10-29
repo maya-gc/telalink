@@ -2,7 +2,13 @@
 :root {
   --bg: #0e1016; --panel: #171a23; --panel2: #1d212c; --line: #262b38;
   --txt: #e8eaf0; --muted: #9aa3b2; --accent: #4f8cff; --ok: #35c28a; --warn: #f5b84a; --err: #ff5d6c;
-  --radius: 14px;
+  --radius: 14px; --field: #0b0d12;
+}
+/* Tema claro automatico (segue o Windows/macOS). A tela de quem assiste fica escura (video). */
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f4f6fb; --panel: #ffffff; --panel2: #f0f2f8; --line: #dde2ec; --txt: #151922; --muted: #5a6476;
+    --accent: #2f6fe8; --ok: #13865a; --warn: #a86400; --err: #d22c3c; --field: #f8f9fc; }
+  dialog::backdrop { background: rgba(20,25,35,.35); }
 }
 * { box-sizing: border-box; }
 body {
@@ -30,7 +36,7 @@ label.opt { display: flex; align-items: center; gap: 8px; color: var(--txt); mar
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .spread { justify-content: space-between; }
 input[type=text], input[type=password], input[type=number], select, textarea {
-  font: inherit; width: 100%; background: #0b0d12; border: 1px solid var(--line); color: var(--txt);
+  font: inherit; width: 100%; background: var(--field); border: 1px solid var(--line); color: var(--txt);
   border-radius: 10px; padding: 10px 12px;
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; }
@@ -111,3 +117,14 @@ legend { padding: 0 6px; font-weight: 700; }
 .choices.compact { gap: 8px; margin: 8px 0; }
 .choices.compact .choice { padding: 9px 12px; }
 .viewers li .row { gap: 8px; }
+
+/* QR code do convite */
+.qr { display: flex; align-items: center; gap: 16px; margin-top: 12px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px; flex-wrap: wrap; }
+.qr canvas { width: 176px; height: 176px; image-rendering: pixelated; border-radius: 8px; background: #fff; }
+.qr .hint { max-width: 320px; margin: 0; }
+.invite-pin { position: relative; }
+#btnNewPin { margin-top: 6px; }
+#linkAlert:not(:empty), #pinAlert:not(:empty) { margin-top: 10px; }
+.stage-msg { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(14,16,22,.85);
+  color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: calc(100% - 32px); text-align: center; }
+button[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }

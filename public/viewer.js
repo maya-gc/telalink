@@ -14,6 +14,9 @@ const roomId = new URLSearchParams(location.search).get('room');
 const sessionKey = keyFromHash(location.hash);
 
 let ws, pc, channel, keys, viewerId, receiver, audioCtx, p2pTimer;
+// Reconexao automatica: se a conexao cair, tenta voltar sozinho (mesmo PIN).
+let joinedPin = null, ended = false, retry = 0, retryTimer = null, offline = false;
+const RETRY_DELAYS = [1, 2, 3, 5, 8, 10, 10, 10, 10, 10];   // segundos (~70 s no total)
 let iceServers = [];
 let transport = 'conectando';
 
@@ -21,6 +24,7 @@ let transport = 'conectando';
 const diag = { local: [], remote: [], states: [], pairs: null };
 window.__telalink = {
   get transport() { return transport; },
+  get reconnecting() { return retry > 0; },
   get stats() { return receiver ? { ...receiver.stats } : null; },
   get diag() { return diag; },
   quality: () => measureQuality(),
@@ -91,18 +95,62 @@ async function join() {
   // AudioContext precisa nascer de um clique (regra dos navegadores).
   try { audioCtx = new AudioContext({ latencyHint: 'interactive' }); } catch { audioCtx = null; }
   keys = await deriveKeys(sessionKey, roomId);
+  joinedPin = pin;
+  await openAndJoin();
+}
 
-  ws = openSocket({
+async function openAndJoin() {
+  const sock = openSocket({
     onJson: onMessage,
     onBinary: (bytes) => receiver?.handle(bytes),
-    onClose: () => { if (transport === 'conectando') $('btnJoin').disabled = false; },
+    onClose: () => onSocketClosed(sock),
   });
-  await ws.opened.catch(() => {});
-  ws.json({ type: 'viewer-join', roomId, pin });
+  ws = sock;
+  await sock.opened.catch(() => {});
+  sock.json({ type: 'viewer-join', roomId, pin: joinedPin });
+}
+
+function stageMsg(text) {
+  const el = $('stageMsg');
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+}
+
+function onSocketClosed(sock) {
+  if (sock !== ws || ended) return;
+  if (!viewerId && !retry) { $('btnJoin').disabled = false; return; }      // nem chegou a entrar
+  // Imagem direta ainda chegando: continua assistindo; reconecta so se ela cair.
+  if (pc && pc.connectionState === 'connected') {
+    offline = true;
+    stageMsg('Sem contato com o servidor — a imagem continua pela conexão direta.');
+    return;
+  }
+  scheduleReconnect();
+}
+
+function scheduleReconnect() {
+  if (ended) return;
+  cleanup(); viewerId = null; offline = false;
+  if (retry >= RETRY_DELAYS.length) {
+    stageMsg('');
+    $('stage').classList.remove('on');
+    $('gate').style.display = '';
+    $('btnJoin').disabled = false;
+    retry = 0;
+    return show($('gateMsg'), 'err', 'A conexão caiu e não voltou. Se quem transmite enviou um link novo, abra o novo link; senão, clique em Entrar para tentar de novo.');
+  }
+  const d = RETRY_DELAYS[retry++];
+  stageMsg(`Conexão perdida — reconectando em ${d} s… (tentativa ${retry} de ${RETRY_DELAYS.length})`);
+  clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => openAndJoin().catch(() => scheduleReconnect()), d * 1000);
 }
 
 async function onMessage(m) {
   if (m.type === 'error') {
+    if (retry && m.reason !== 'sala-inexistente') { ws.close?.(); return; }   // reconectando: tenta de novo
+    ended = m.reason === 'sala-inexistente' && retry > 0;
+    retry = 0; stageMsg('');
+    if (ended) { $('stage').classList.remove('on'); $('gate').style.display = ''; }
     $('btnJoin').disabled = false;
     const txt = { 'pin-invalido': 'PIN incorreto.', 'sala-inexistente': 'Transmissão não encontrada ou já encerrada.',
       bloqueado: 'Tentativas demais. Peça um novo link a quem está transmitindo.', 'sala-cheia': 'A transmissão atingiu o limite de espectadores.',
@@ -110,6 +158,7 @@ async function onMessage(m) {
     return show($('gateMsg'), 'err', txt || 'Não foi possível entrar.');
   }
   if (m.type === 'viewer-accepted') {
+    if (retry) { retry = 0; stageMsg(''); }
     viewerId = m.viewerId;
     iceServers = m.iceServers || [];
     channel = new SecureChannel(keys.sig, `${roomId}|${viewerId}`);
@@ -122,6 +171,7 @@ async function onMessage(m) {
     return onHostSignal(p);
   }
   if (m.type === 'kicked') {
+    ended = true;
     cleanup();
     $('stage').classList.remove('on');
     $('gate').style.display = '';
@@ -129,6 +179,7 @@ async function onMessage(m) {
     return show($('gateMsg'), 'err', 'Você foi removido da transmissão por quem está transmitindo.');
   }
   if (m.type === 'host-left') {
+    ended = true;
     cleanup();
     $('stage').classList.remove('on');
     $('gate').style.display = '';
@@ -180,7 +231,8 @@ function createPeer() {
       setTransport(await describeTransport(pc));
       sendSig({ kind: 'transport', mode: transport });
       showStage('video');
-    } else if (pc.connectionState === 'failed') {
+    } else if (pc.connectionState === 'failed' || (offline && pc.connectionState === 'disconnected')) {
+      if (offline) return scheduleReconnect();
       fallbackToRelay();
     }
   };

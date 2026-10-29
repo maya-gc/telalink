@@ -9,11 +9,12 @@ import { BlackScreenDetector, QUALITY, qualityPreset, captureConstraints, sender
   maxKbpsFor, degradationFor, withBitrateHints, orderCodecs, qualityText } from './media-util.js';
 import { RelaySender } from './relay.js';
 import { Output, loadImageFiles } from './output.js';
+import { drawQr } from './qr.js';
 
 // ------------------------------------------------------------ estado
 let tunnel = { status: 'off', url: null, error: null };
 let conexao = null;
-let prefs = { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0 };
+let prefs = { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true };
 let policy = 'auto';
 let ws, roomId, pin, sessionKey, keys;
 let iceServers = [];
@@ -42,6 +43,7 @@ window.__telalink = {
   },
   // Qualidade realmente enviada a cada pessoa (resolucao, quadros, banda, codec).
   measure: () => measureSending(),
+  refreshInfo: () => loadInfo(),
   get state() {
     return output ? { source: output.source, paused: output.paused, muted: output.muted, volume: output.volume,
       quality: prefs.quality, fps: prefs.fps, bitrate: prefs.bitrate, locked, policy } : null;
@@ -69,7 +71,18 @@ function renderTunnel() {
   if (tunnel.status === 'on') { el.className = 'pill on'; el.textContent = '● Link externo pronto'; el.title = tunnel.providerName ? `via ${tunnel.providerName}` : ''; }
   else if (tunnel.status === 'starting') { el.className = 'pill wait'; el.textContent = '◌ Preparando link…'; }
   else { el.className = 'pill off'; el.textContent = '○ Só neste computador'; el.title = tunnel.error || ''; }
-  if (roomId) $('shareLink').value = linkFor();
+  if (roomId) {
+    const link = linkFor();
+    // O servico gratuito de link (localhost.run) troca o endereco de tempos em tempos.
+    if (lastTunnelUrl && tunnel.url && tunnel.url !== lastTunnelUrl) {
+      show($('linkAlert'), 'warn', '⚠ O endereço do link mudou (o serviço gratuito de link troca o endereço de tempos em tempos). ' +
+        'Envie o convite de novo para quem for entrar — use "Copiar convite".');
+      document.title = '⚠ Link mudou — TelaLink';
+    }
+    if (tunnel.url) lastTunnelUrl = tunnel.url;
+    $('shareLink').value = link;
+    if (!$('qrBox').classList.contains('hidden')) drawQr($('qrCanvas'), link);
+  }
   const t = $('sumTunnel');
   if (t) t.textContent = tunnel.status === 'on' ? `Pronto via ${tunnel.providerName || 'túnel'}` : tunnel.status === 'starting' ? 'Preparando…' : (tunnel.error || 'Desligado');
 }
@@ -84,6 +97,10 @@ function renderConn() {
 
 let firstInfo = true;
 async function pollInfo() {
+  await loadInfo();
+  setTimeout(pollInfo, tunnel.status === 'on' ? 10000 : 2000);
+}
+async function loadInfo() {
   try {
     const info = await (await fetch('/api/info')).json();
     tunnel = info.tunnel;
@@ -97,7 +114,6 @@ async function pollInfo() {
   } catch {}
   renderTunnel();
   renderConn();
-  setTimeout(pollInfo, tunnel.status === 'on' ? 10000 : 2000);
 }
 pollInfo();
 renderSummary();
@@ -109,6 +125,7 @@ function openSettings() {
   $('optBitrate').value = String(prefs.bitrate || 0);
   document.querySelector(`input[name=hint][value=${prefs.hint}]`).checked = true;
   $('optAudio').checked = prefs.audio;
+  $('optNotify').checked = prefs.notify !== false;
   $('optVolume').value = prefs.volume; $('optVolumeTxt').textContent = `${prefs.volume}%`;
   document.querySelector(`input[name=policy][value=${policy}]`).checked = true;
   $('optTunnel').value = conexao?.tunnel || 'auto';
@@ -128,6 +145,7 @@ $('btnSaveSettings').onclick = async () => {
     hint: document.querySelector('input[name=hint]:checked').value,
     audio: $('optAudio').checked, volume: Number($('optVolume').value),
     bitrate: Number($('optBitrate').value),
+    notify: $('optNotify').checked,
   };
   const nextPolicy = document.querySelector('input[name=policy]:checked').value;
   const nextTunnel = $('optTunnel').value;
@@ -208,6 +226,8 @@ function ensureOutput() {
 }
 
 // ------------------------------------------------------------ ao vivo
+let lastTunnelUrl = null;
+let liveSince = 0;
 const shareBase = () => tunnel.url || location.origin;
 const linkFor = () => `${shareBase()}/view?room=${roomId}#k=${toB64url(sessionKey)}`;
 
@@ -229,9 +249,52 @@ async function goLive() {
   connect();
   watchBlackScreen();
   usageTimer = setInterval(reportTurnUsage, 30_000);
+  liveSince = Date.now();
+  clockTimer = setInterval(renderClock, 1000);
   // 3o clique ja foi o da janela de escolha: o convite vai sozinho para a area de transferencia.
   copyInvite(true);
 }
+
+// ------------------------------------------------------------ relogio, titulo, avisos
+let clockTimer = null;
+const fmtTime = (ms) => {
+  const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
+};
+function renderClock() {
+  if (!output || !liveSince) return;
+  const watching = [...viewers.values()].filter((v) => v.transport !== 'conectando').length;
+  $('liveTxt').textContent = `${output.paused ? 'Pausado' : 'Ao vivo'} · ${fmtTime(Date.now() - liveSince)}`;
+  if (!document.title.startsWith('⚠')) document.title = `${output.paused ? '❚❚ Pausado' : '● Ao vivo'}${watching ? ` (${watching})` : ''} — TelaLink`;
+}
+// Aviso sonoro curto e discreto (so neste computador).
+let chimeCtx = null;
+function chime(up = true) {
+  if (prefs.notify === false) return;
+  try {
+    chimeCtx ||= new AudioContext();
+    const t = chimeCtx.currentTime, o = chimeCtx.createOscillator(), g = chimeCtx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(up ? 660 : 520, t);
+    o.frequency.setValueAtTime(up ? 880 : 390, t + 0.09);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    o.connect(g).connect(chimeCtx.destination);
+    o.start(t); o.stop(t + 0.3);
+  } catch {}
+}
+// Fechar a aba sem querer encerraria a transmissao: o navegador pergunta antes.
+window.addEventListener('beforeunload', (e) => { if (output && roomId) { e.preventDefault(); e.returnValue = ''; } });
+
+$('btnQr').onclick = () => {
+  const box = $('qrBox');
+  const open = box.classList.toggle('hidden') === false;
+  $('btnQr').setAttribute('aria-expanded', String(open));
+  if (open) drawQr($('qrCanvas'), linkFor());
+};
+$('btnNewPin').onclick = () => ws?.json({ type: 'new-pin' });
 
 async function copyInvite(auto = false) {
   try {
@@ -257,7 +320,7 @@ function renderLive() {
   $('btnMute').classList.toggle('active', output.muted);
   $('volume').value = output.volume;
   $('volumeTxt').textContent = `${output.volume}%`;
-  $('liveTxt').textContent = output.paused ? 'Pausado' : 'Ao vivo';
+  renderClock();
   $('liveDot').classList.toggle('live', !output.paused);
   $('btnLock').textContent = locked ? '🔒 Sala trancada' : '🔓 Sala aberta';
   $('btnLock').setAttribute('aria-pressed', String(locked));
@@ -348,9 +411,17 @@ function connect() {
       if (m.type === 'host-ready') iceServers = m.iceServers || [];
       else if (m.type === 'viewer-joined') await onViewerJoined(m.viewerId);
       else if (m.type === 'signal' && m.from === 'viewer') await onViewerSignal(m.viewerId, m.data);
-      else if (m.type === 'viewer-left') closeViewer(m.viewerId);
+      else if (m.type === 'viewer-left') onViewerLeft(m.viewerId);
       else if (m.type === 'relay-want') onRelayWant(m.viewerId);
       else if (m.type === 'relay-keyframe') relay?.requestKeyframe();
+      else if (m.type === 'pin') {
+        pin = m.pin; $('pinView').textContent = pin; show($('pinAlert'), '', '');
+        await copyInvite(true);
+        toast(`🔑 Novo PIN: ${pin} — convite copiado de novo. Quem já assiste continua.`);
+      } else if (m.type === 'pin-failures') {
+        const pausa = m.lockedUntil > Date.now() ? ' Novas entradas estão em pausa por alguns minutos.' : '';
+        show($('pinAlert'), 'warn', `⚠ ${m.count} tentativa${m.count > 1 ? 's' : ''} de PIN errada${m.count > 1 ? 's' : ''}.${pausa} Se não for alguém que você convidou, clique em "↻ Novo PIN".`);
+      }
       else if (m.type === 'locked') { locked = m.locked; renderLive(); toast(locked ? '🔒 Sala trancada: ninguém novo entra.' : '🔓 Sala aberta para novas pessoas.'); }
       else if (m.type === 'error') show($('shareMsg'), 'err', 'Erro na sala: ' + m.reason);
       renderViewers();
@@ -367,6 +438,8 @@ async function sendSig(viewerId, payload) {
 }
 
 async function onViewerJoined(viewerId) {
+  toast(`👋 Alguém entrou na transmissão (${viewers.size + 1} ${viewers.size ? 'pessoas' : 'pessoa'}).`);
+  chime(true);
   viewers.set(viewerId, { channel: new SecureChannel(keys.sig, `${roomId}|${viewerId}`), pc: null, transport: 'conectando', turnReported: 0, joinedAt: Date.now() });
   await sendSig(viewerId, { kind: 'hello', policy });
   if (policy === 'auto') await createOffer(viewerId);
@@ -382,7 +455,10 @@ async function onViewerSignal(viewerId, envelope) {
     // Comeca com banda alta (o padrao do navegador e ~0,3 Mbps = 360p por varios segundos).
     const max = maxKbpsFor(prefs.quality, { fps: prefs.fps, limitMbps: prefs.bitrate });
     const start = Math.min(qualityPreset(prefs.quality).startKbps, max);
-    await v.pc.setRemoteDescription({ type: p.sdp.type, sdp: withBitrateHints(p.sdp.sdp, { startKbps: start, maxKbps: max }) });
+    // Se um navegador futuro recusar o ajuste (parametros nao padronizados),
+    // segue sem ele: so a subida de banda fica mais lenta.
+    try { await v.pc.setRemoteDescription({ type: p.sdp.type, sdp: withBitrateHints(p.sdp.sdp, { startKbps: start, maxKbps: max }) }); }
+    catch (err) { console.warn('[telalink] ajuste de banda recusado; seguindo sem ele', err); await v.pc.setRemoteDescription(p.sdp); }
   }
   else if (p.kind === 'ice' && v.pc) await v.pc.addIceCandidate(p.candidate).catch(() => {});
   else if (p.kind === 'transport') v.transport = p.mode;
@@ -449,8 +525,26 @@ function onRelayWant(viewerId) {
   relay.requestKeyframe();
 }
 
-function closeViewer(viewerId) {
+// Espectador saiu do servidor. Se a conexao direta dele ainda funciona (ex.: o
+// link externo caiu ou mudou de endereco), a imagem continua ate ela cair.
+// Quem foi REMOVIDO pelo host perde a imagem na hora.
+const kicking = new Set();
+function onViewerLeft(viewerId) {
   const v = viewers.get(viewerId);
+  if (v?.pc && v.pc.connectionState === 'connected' && !kicking.has(viewerId)) {
+    v.detached = true;
+    const pc = v.pc;
+    const check = () => { if (pc.connectionState !== 'connected' && viewers.get(viewerId)?.pc === pc) { closeViewer(viewerId); renderViewers(); } };
+    pc.addEventListener('connectionstatechange', check);
+    return;
+  }
+  kicking.delete(viewerId);
+  closeViewer(viewerId);
+}
+
+function closeViewer(viewerId, quiet = false) {
+  const v = viewers.get(viewerId);
+  if (v && !quiet) { toast('Uma pessoa saiu da transmissão.'); chime(false); }
   v?.pc?.close();
   viewers.delete(viewerId);
   relayViewers.delete(viewerId);
@@ -472,10 +566,10 @@ function renderViewers() {
     const li = document.createElement('li');
     const name = document.createElement('span'); name.textContent = `Pessoa ${i}`;
     const right = document.createElement('span'); right.className = 'row';
-    const how = document.createElement('span'); how.className = 'stat'; how.textContent = TRANSPORT_LABEL[v.transport] || v.transport;
+    const how = document.createElement('span'); how.className = 'stat'; how.textContent = (TRANSPORT_LABEL[v.transport] || v.transport) + (v.detached ? ' (sem contato com o servidor)' : '');
     const kick = document.createElement('button'); kick.className = 'ghost small'; kick.textContent = 'Remover';
     kick.dataset.viewer = id;
-    kick.onclick = () => ws.json({ type: 'kick', viewerId: id });
+    kick.onclick = () => { kicking.add(id); if (v.detached) { closeViewer(id); renderViewers(); } else ws.json({ type: 'kick', viewerId: id }); };
     const qual = document.createElement('span'); qual.className = 'stat q'; qual.dataset.q = id; qual.textContent = v.qtext || '';
     right.append(qual, how, kick);
     li.append(name, right);
@@ -552,9 +646,10 @@ function watchBlackScreen() {
 
 // ------------------------------------------------------------ fim
 function stopAll() {
-  for (const id of [...viewers.keys()]) closeViewer(id);
+  for (const id of [...viewers.keys()]) closeViewer(id, true);
   relay?.stop(); relay = null;
-  clearInterval(usageTimer);
+  clearInterval(usageTimer); clearInterval(clockTimer);
+  document.title = 'TelaLink';
   output?.stop(); output = null;
   ws?.close();
   $('liveDot').classList.remove('live');

@@ -12,10 +12,13 @@
 // =============================================================================
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { win32 } from 'node:path';
+import { win32, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 
 export const WINGET_ID = 'Cloudflare.cloudflared';
+// Pasta onde o TelaLink guarda o que baixa sozinho (Node.js portatil, cloudflared).
+export const RUNTIME_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '.runtime');
 const SIGNER_RE = /\bO="?Cloudflare, Inc\.?"?(,|$)/;
 
 // Caminhos onde o instalador oficial costuma colocar o cloudflared no Windows.
@@ -58,11 +61,13 @@ function whichAll(platform, run) {
 
 // Retorna { path, verified, signer } ou lanca erro explicando o problema.
 // Retorna null se o cloudflared nao estiver instalado.
-export function findCloudflared({ platform = process.platform, env = process.env, run = spawnSync, exists = existsSync } = {}) {
+export function findCloudflared({ platform = process.platform, env = process.env, run = spawnSync, exists = existsSync, runtimeDir = RUNTIME_DIR } = {}) {
   const candidates = [];
   if (env.CLOUDFLARED_PATH) candidates.push(env.CLOUDFLARED_PATH);
   candidates.push(...whichAll(platform, run));
   if (platform === 'win32') candidates.push(...windowsCandidates(env));
+  // Por ultimo, o baixado pelo proprio TelaLink (assinatura conferida de novo abaixo, no Windows).
+  if (runtimeDir) candidates.push(join(runtimeDir, platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'));
   const unique = [...new Set(candidates)].filter((p) => exists(p));
   if (!unique.length) return null;
 
@@ -86,9 +91,9 @@ export const parseTunnelUrl = (text) => (String(text).match(URL_RE) || [null])[0
 //  tentativa usa HTTP/2 sobre TCP. status: off|starting|on|error
 // -----------------------------------------------------------------------------
 export class Tunnel extends EventEmitter {
-  constructor({ port, bin, binArgs = [], log = console.log, startTimeoutMs = 30_000, maxRestarts = 6, restartDelayMs = 3000 }) {
+  constructor({ port, bin, binArgs = [], log = console.log, startTimeoutMs = 30_000, maxRestarts = 6, restartDelayMs = 3000, configFile = null }) {
     super();
-    Object.assign(this, { port, bin, binArgs, log, startTimeoutMs, maxRestarts, restartDelayMs });
+    Object.assign(this, { port, bin, binArgs, log, startTimeoutMs, maxRestarts, restartDelayMs, configFile });
     this.status = 'off';
     this.url = null;
     this.error = null;
@@ -101,6 +106,9 @@ export class Tunnel extends EventEmitter {
 
   args() {
     const a = [...this.binArgs, 'tunnel', '--no-autoupdate'];
+    // Arquivo de configuracao proprio (vazio): o tunel rapido nao e afetado por
+    // um ~/.cloudflared/config.yaml pessoal (que, segundo a Cloudflare, o quebra).
+    if (this.configFile) a.push('--config', this.configFile);
     if (this.protocol === 'http2') a.push('--protocol', 'http2');
     a.push('--url', `http://127.0.0.1:${this.port}`);
     return a;
@@ -232,6 +240,11 @@ export class SshTunnel extends Tunnel {
   args() {
     return [...this.binArgs,
       '-T',                                         // sem terminal interativo
+      '-F', 'none',                                 // ignora ~/.ssh/config (nada de configuracao pessoal no tunel)
+      // Privacidade: nao oferece as chaves SSH pessoais do usuario ao servidor do
+      // tunel (elas identificam a pessoa, ex.: pela conta do GitHub).
+      '-o', 'PubkeyAuthentication=no', '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none',
+      '-o', 'PasswordAuthentication=no',
       '-o', 'StrictHostKeyChecking=accept-new',     // guarda a chave do servidor na 1a vez e exige a mesma depois
       '-o', `UserKnownHostsFile=${this.knownHostsFile}`,
       '-o', 'ServerAliveInterval=20', '-o', 'ServerAliveCountMax=3',

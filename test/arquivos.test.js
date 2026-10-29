@@ -83,3 +83,22 @@ for (const page of ['host', 'viewer', 'config']) {
     for (const id of ids) assert.match(html, new RegExp(`id="${id}"`), `${page}.html sem #${id}`);
   });
 }
+
+// Instaladores: nada de padroes que antivirus associam a malware, e so ASCII
+// (o Windows PowerShell 5 le arquivos sem BOM como ANSI).
+for (const f of ['scripts/instalar-node.ps1', 'scripts/instalar-node.sh', 'iniciar-mac-linux.sh']) {
+  test(`${f}: ASCII, sem execucao de texto baixado nem janela escondida`, () => {
+    const s = readFileSync(join(ROOT, f), 'utf8');
+    assert.ok(/^[\x00-\x7F]*$/.test(s), 'so ASCII');
+    for (const bad of [/Invoke-Expression/i, /\biex\b/i, /-EncodedCommand/i, /DownloadString/i, /WindowStyle\s+Hidden/i, /\|\s*(ba)?sh\b/, /curl[^\n]*\|\s*bash/, /eval\s/]) {
+      assert.ok(!bad.test(s), `padrao proibido: ${bad}`);
+    }
+    assert.match(s, /SHA-?256/i, 'confere o hash do que baixa');
+  });
+}
+test('instalador do Windows exige a assinatura digital da OpenJS Foundation', () => {
+  const s = readFileSync(join(ROOT, 'scripts/instalar-node.ps1'), 'utf8');
+  assert.match(s, /Get-AuthenticodeSignature/);
+  assert.match(s, /OpenJS Foundation/);
+  assert.match(s, /https:\/\/nodejs\.org\/dist/);
+});

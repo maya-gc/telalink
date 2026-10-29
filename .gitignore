@@ -6,3 +6,4 @@ settings.json
 coverage/
 lab-results/
 relatorio-testes.xml
+.runtime/

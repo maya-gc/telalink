@@ -7,13 +7,13 @@ Compartilhe sua **tela, janela ou aba, com áudio**, com pessoas em **qualquer r
 
 ## Uso no Windows
 
-Instale o **Node.js LTS** uma vez (https://nodejs.org ou `winget install --id OpenJS.NodeJS.LTS -e`). Depois, são **3 cliques**:
+Não precisa instalar nada antes. São **3 cliques**:
 
 1. Duplo-clique em **`Iniciar.bat`** — o painel abre sozinho.
 2. Clique em **Minha tela** (ou **Imagens**) e escolha o que mostrar.
 3. O **convite (link + PIN) já vai copiado** — é só colar no WhatsApp ou e-mail.
 
-Não precisa instalar mais nada: o link externo usa o **SSH que já vem no Windows 10/11** (serviço gratuito localhost.run). Se você tiver o `cloudflared` instalado, ele é usado automaticamente (dá para escolher em ⚙ Configurações).
+Na **primeira vez**, o `Iniciar.bat` baixa sozinho o que falta — o **Node.js** e o **cloudflared** oficiais — para a pasta `.runtime` do próprio TelaLink: sem administrador e sem instalar nada no Windows. Cada download só é aceito se o **SHA-256** bater com a lista oficial e a **assinatura digital** for do fabricante (OpenJS Foundation / Cloudflare, Inc.). Sem o cloudflared, o link externo usa o **SSH que já vem no Windows 10/11**.
 
 A janela preta fica aberta de propósito: ela é o servidor.
 
@@ -28,6 +28,10 @@ A janela preta fica aberta de propósito: ela é o servidor.
 | **Imagens** | Mostre fotos/prints como slides (◀ ▶), adicione mais a qualquer momento |
 | **Trancar sala** | Ninguém novo entra; quem já está continua |
 | **Remover** | Tira uma pessoa da transmissão |
+| **↻ Novo PIN** | Gera outro PIN (quem já assiste continua). O painel avisa quando alguém erra o PIN |
+| **📱 QR code** | Mostra o link em QR para abrir no celular |
+
+O painel mostra há quanto tempo está ao vivo, avisa (com um som discreto, que dá para desligar) quando alguém entra ou sai e alerta se o endereço do link externo mudar. Fechar a aba sem querer pede confirmação. Quem assiste **reconecta sozinho** se a internet cair. O visual segue o tema claro ou escuro do sistema.
 
 O painel mostra, para cada pessoa, a qualidade que está chegando (ex.: `1080p · 30 qps · 6,2 Mbps · VP9`) e avisa se a internet ou o processador estão limitando. Quem assiste vê o mesmo na barra de cima.
 
@@ -39,11 +43,11 @@ Tudo tem padrão bom; só abra se quiser mudar: qualidade, quadros por segundo (
 
 | Arquivo | O que faz |
 |---|---|
-| `Iniciar.bat` | Autoteste, sobe o servidor, abre o painel e o link externo |
+| `Iniciar.bat` | Baixa o que falta (1ª vez), autoteste, sobe o servidor, abre o painel e o link externo |
 | `Testar.bat` | Roda a bateria completa de testes |
 | `Diagnostico.bat` | Mostra o que está faltando se algo der errado |
 
-macOS/Linux: `./iniciar-mac-linux.sh` (usa o `ssh` do sistema ou o `cloudflared`, se instalado).
+macOS/Linux: `./iniciar-mac-linux.sh` — também baixa sozinho o Node.js e o cloudflared oficiais (sem `sudo`).
 
 ## Como a imagem chega a quem assiste
 
@@ -68,7 +72,13 @@ O modo **Máxima segurança** usa sempre a retransmissão cifrada (ver abaixo).
 - **Nenhum executável embutido**: o link externo usa o `ssh.exe` do Windows (só com **assinatura da Microsoft**) ou o `cloudflared` (só com **assinatura da Cloudflare, Inc.**).
 - **Porta separada para o link externo**: o túnel só alcança uma porta dedicada, que nunca serve o painel nem as configurações.
 
-Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md) e [`SECURITY.md`](SECURITY.md).
+- **Proteções contra abuso pelo link**: erros de PIN pausam a sala por alguns minutos (sem travar para sempre), limites de conexões e mensagens por pessoa, e o túnel SSH não revela suas chaves SSH pessoais.
+
+Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md), [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) e [`SECURITY.md`](SECURITY.md).
+
+## É legal? Pode ser bloqueado?
+
+Sim, é legal: funciona como uma chamada de vídeo (mostra só o que você escolhe, sem controle remoto nem invasão, sem contornar DRM). Não há servidor central para "derrubar" — roda no seu PC. O que depende de terceiros é o link externo gratuito (Cloudflare e localhost.run, sem garantia de disponibilidade e às vezes bloqueados em redes de empresa); para uso contínuo, o recomendado é um domínio próprio. Levantamento completo, com fontes: [`docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`](docs/RISCOS-LEGAIS-E-CONTINUIDADE.md).
 
 ## Tela preta?
 
@@ -82,7 +92,7 @@ Em ⚙ Configurações → **Opções avançadas de conexão** é possível esco
 ## Testes
 
 ```
-npm test                 # 200+ testes: unidade, integração, segurança, E2E com navegador real
+npm test                 # 250 testes: unidade, integração, segurança, E2E com navegador real
 npm run test:coverage    # idem, com cobertura mínima obrigatória
 npm run lab              # laboratório de redes isoladas (Linux, root)
 ```
@@ -98,6 +108,9 @@ O **GitHub Actions** roda tudo a cada envio, em Windows, macOS e Linux, e o **la
 | [`docs/REQUISITOS-E-RASTREABILIDADE.md`](docs/REQUISITOS-E-RASTREABILIDADE.md) | Requisitos e o teste que verifica cada um |
 | [`docs/PLANO-DE-TESTES.md`](docs/PLANO-DE-TESTES.md) | Estratégia, níveis, laboratório e teste manual |
 | [`docs/PROCESSO-DE-QUALIDADE.md`](docs/PROCESSO-DE-QUALIDADE.md) | Práticas alinhadas a CMMI e ISO, e o que exige auditoria |
+| [`docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`](docs/RISCOS-LEGAIS-E-CONTINUIDADE.md) | Leis, termos dos serviços de link, bloqueios possíveis e plano B |
+| [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) | Auditoria da versão 2.4: achados, correções e testes |
+| [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Componentes de terceiros e licenças |
 | [`docs/ASSINATURA-DE-CODIGO.md`](docs/ASSINATURA-DE-CODIGO.md) | Como evitar alertas do Windows (SmartScreen/antivírus) |
 | [`SECURITY.md`](SECURITY.md) | Como reportar vulnerabilidades |
 | [`CHANGELOG.md`](CHANGELOG.md) | Histórico de versões |

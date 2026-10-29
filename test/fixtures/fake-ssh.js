@@ -7,6 +7,8 @@ const remote = args[args.indexOf('-R') + 1] || '';
 const problems = [];
 if (!has('StrictHostKeyChecking=accept-new')) problems.push('sem StrictHostKeyChecking=accept-new');
 if (!args.some((a) => a.startsWith('UserKnownHostsFile='))) problems.push('sem UserKnownHostsFile');
+for (const opt of ['PubkeyAuthentication=no', 'IdentitiesOnly=yes', 'IdentityAgent=none', 'PasswordAuthentication=no']) if (!has(opt)) problems.push(`sem ${opt} (chaves pessoais seriam oferecidas)`);
+if (args[args.indexOf('-F') + 1] !== 'none') problems.push('sem -F none (leria ~/.ssh/config)');
 if (!/^80:127\.0\.0\.1:\d+$/.test(remote)) problems.push(`-R inesperado: ${remote}`);
 if (!args.at(-1)?.startsWith('nokey@')) problems.push('destino inesperado');
 if (problems.length) { process.stderr.write(`fake-ssh: ${problems.join('; ')}\n`); process.exit(2); }

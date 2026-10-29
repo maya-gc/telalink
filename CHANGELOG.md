@@ -1,5 +1,29 @@
 # Histórico de versões
 
+## 2.4.0 — 2026-10-29
+
+### Novo
+- **Instalação automática**: na primeira vez, o `Iniciar.bat` (e o `iniciar-mac-linux.sh`) baixa sozinho o **Node.js** e o **cloudflared** oficiais para a pasta `.runtime`, sem administrador; cada download exige **SHA-256** da lista oficial e **assinatura digital** do fabricante. Testado com downloads reais nos 3 sistemas, toda semana.
+- **QR code do convite** para abrir no celular.
+- **Novo PIN** e aviso de tentativas de PIN erradas.
+- Aviso quando o **endereço do link muda** (o serviço gratuito troca de tempos em tempos), com link e QR atualizados.
+- Relógio "ao vivo", título da aba com o número de pessoas, avisos (com som opcional) de entrada e saída, confirmação antes de fechar a aba.
+- **Reconexão automática** de quem assiste; com conexão direta, a imagem continua mesmo se o servidor/link cair.
+- **Tema claro** automático e ícone próprio.
+
+### Segurança (auditoria completa: `docs/AUDITORIA-DE-SEGURANCA.md`)
+- Erros de PIN **pausam** a sala por 5 min em vez de travá-la para sempre (impede derrubar a transmissão só com o link).
+- Limites de conexões por IP, de mensagens por conexão e de tempo sem entrar em sala; ping de vida.
+- IP confiável conforme o provedor do túnel (não dá para forjar `X-Forwarded-For`).
+- Túnel SSH não oferece mais as **chaves SSH pessoais** ao servidor nem lê `~/.ssh/config`.
+- cloudflared com configuração isolada (um `config.yaml` pessoal não interfere).
+- Ações do GitHub Actions fixadas por SHA; cabeçalhos de segurança ampliados.
+- Se um navegador futuro recusar o ajuste de banda no SDP, a conexão segue sem ele.
+
+### Documentação
+- `docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`: LGPD, direitos autorais, Marco Civil, criptografia, licenças, termos dos serviços de link, bloqueios possíveis e plano B.
+- `THIRD-PARTY-NOTICES.md`.
+
 ## 2.3.0 — 2026-10-28
 
 ### Corrigido

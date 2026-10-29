@@ -41,6 +41,12 @@
 | A15 | I | Exposição do PC na rede local | Servidor escuta só em `127.0.0.1` | `main.test.js` |
 | A17 | E | Visitante via túnel finge ser local (o túnel conecta de 127.0.0.1) | Túnel aponta para **porta externa dedicada**; conexões nela são sempre externas, independentemente do endereço | `acesso.test.js` › porta externa |
 | A18 | T | `ssh.exe` trocado ou servidor do túnel falsificado | `ssh` só com assinatura Microsoft válida; `StrictHostKeyChecking=accept-new` com `known_hosts` próprio (troca posterior da chave é recusada) | `tunnel.test.js` |
+| A19 | D | Quem tem só o link trava a sala errando o PIN (negação de serviço) | Pausa de 5 min após 10 erros (não trava para sempre); host avisado; **Novo PIN** | `seguranca.test.js` |
+| A20 | D | Inundar o servidor com conexões/mensagens pelo link | 20 conexões por IP, 30 mensagens/s por conexão, conexão sem sala fechada em 60 s, teto de 500 conexões, ping de vida | `seguranca.test.js` |
+| A21 | S | Visitante inventa IP (`X-Forwarded-For`, `CF-Connecting-IP`) para escapar do limite por IP | Só o cabeçalho do provedor ativo; último item do `X-Forwarded-For` | `seguranca.test.js` |
+| A22 | I | Túnel SSH revela a identidade do usuário (chaves SSH pessoais oferecidas ao servidor) | Sem autenticação por chave, sem agente, sem `~/.ssh/config` | `tunnel-manager.test.js` |
+| A23 | T | Instalador baixa Node.js ou cloudflared adulterado | HTTPS de fonte oficial + SHA-256 publicado + assinatura digital do fabricante; falha = nada instalado | `instalador.test.js`, workflow `instalador` |
+| A24 | T | Ação do GitHub Actions trocada (etiqueta movida) | Ações fixadas por SHA de commit | revisão |
 | A16 | I | "Armazenar agora, decifrar depois" (quântico) | Modo **Máxima segurança**: só AES-256 com chave pré-compartilhada (Grover → ~128 bits efetivos). HTTPS até a Cloudflare usa troca de chaves híbrida pós-quântica nos navegadores atuais | `e2e.test.js` (modo máxima segurança) |
 
 ## Riscos residuais (aceitos e comunicados)
@@ -55,4 +61,5 @@
 | Túnel rápido (`trycloudflare.com`) sem garantia de disponibilidade e às vezes bloqueado por filtros corporativos | Política do serviço | Túnel nomeado com domínio próprio |
 | localhost.run (túnel SSH padrão) é um serviço gratuito de terceiro que termina o HTTPS e vê metadados | Sem conta nem cartão exige um intermediário | Conteúdo segue cifrado de ponta a ponta (chave no `#`); usar Cloudflare ou domínio próprio se preferir |
 | Primeiro uso do SSH confia na chave do servidor sem verificação prévia (TOFU) | Serviço não publica *fingerprint* fixo | Mudanças posteriores da chave são recusadas |
+| Domínios de túnel gratuitos bloqueados em redes de empresa/escola | Esses domínios são usados em golpes e entram em listas de bloqueio | Domínio próprio (ver `RISCOS-LEGAIS-E-CONTINUIDADE.md`) |
 | Conteúdo protegido por DRM sai preto | Decisão do detentor dos direitos | Nenhuma (não contornar) |

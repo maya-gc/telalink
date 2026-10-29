@@ -28,6 +28,11 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-19 | Qualidades até 4K e limite de banda ajustável; troca ao vivo sem encolher duas vezes | `qualidade.test.js`, `media.test.js` › qualidade/SDP, `controles.test.js` › Econômica |
 | RF-20 | Retransmissão com H.264/VP9/VP8, banda adaptativa e resolução conforme a banda | `qualidade.test.js` › retransmissão, `media.test.js` › banda adaptativa |
 | RF-21 | Indicador de qualidade recebida/enviada (resolução, qps, Mbps, codec, limitação) | `qualidade.test.js` |
+| RF-22 | Requisitos baixados sozinhos (Node.js e cloudflared), sem administrador, em Windows, macOS e Linux | `instalador.test.js`, workflow `instalador` (downloads reais, semanal) |
+| RF-23 | QR code do convite | `experiencia.test.js` › QR lido por jsQR |
+| RF-24 | Novo PIN e aviso de tentativas erradas | `experiencia.test.js`, `seguranca.test.js` |
+| RF-25 | Aviso quando o link externo muda; relógio e título "ao vivo"; avisos de entrada/saída | `experiencia.test.js` |
+| RF-26 | Quem assiste reconecta sozinho; imagem direta continua se só o servidor cair | `experiencia.test.js` |
 | RF-17 | Link externo sem instalar nada (SSH do sistema), com escolha automática do provedor | `tunnel-manager.test.js`, `tunnel.test.js` › SSH, `main.test.js` › SSH |
 
 ## Segurança
@@ -49,6 +54,11 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RS-13 | Bloqueio de path traversal | `server.test.js` |
 | RS-14 | Servidor escuta só em 127.0.0.1 | `main.test.js` |
 | RS-15 | Espectador não pode enviar mídia; host não pode enviar lixo | `relay.test.js` |
+| RS-18 | Erros de PIN pausam (não travam) a sala; host avisado | `seguranca.test.js` |
+| RS-19 | Limites de conexões, mensagens e tempo sem sala; ping de vida | `seguranca.test.js` |
+| RS-20 | IP confiável conforme o provedor do túnel | `seguranca.test.js` |
+| RS-21 | Túnel SSH não revela chaves nem usa configuração pessoal | `tunnel-manager.test.js` |
+| RS-22 | Downloads só de fonte oficial com SHA-256 e assinatura; sem padrões de malware nos scripts | `instalador.test.js`, `arquivos.test.js` |
 | RS-16 | Túnel só alcança a porta externa dedicada; nela tudo é externo | `acesso.test.js` › porta externa |
 | RS-17 | `ssh` só com assinatura Microsoft válida; chave do servidor fixada no primeiro uso | `tunnel.test.js` (inclui verificação real no Windows) |
 

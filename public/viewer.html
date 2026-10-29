@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>TelaLink — Assistir</title>
 <link rel="stylesheet" href="/style.css" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 <style>
   .gate { max-width: 420px; margin: 12vh auto; padding: 0 16px; text-align: center; }
   .pinput { text-align: center; font-size: 28px !important; letter-spacing: 10px; margin: 16px 0; font-family: ui-monospace, monospace; }
@@ -47,6 +48,7 @@
         <button id="btnFull" title="Tela cheia (F)">⛶ Tela cheia</button>
       </span>
     </div>
+    <div id="stageMsg" class="stage-msg hidden" role="status"></div>
     <video id="remote" autoplay playsinline></video>
     <canvas id="relayCanvas" class="hidden"></canvas>
   </div>
