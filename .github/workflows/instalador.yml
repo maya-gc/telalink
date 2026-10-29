@@ -47,7 +47,10 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          TELALINK_FORCE=1 TELALINK_RUNTIME="$RUNNER_TEMP/rt" bash scripts/instalar-node.sh
+          if ! out="$(TELALINK_FORCE=1 TELALINK_RUNTIME="$RUNNER_TEMP/rt" bash scripts/instalar-node.sh 2>&1)"; then
+            echo "$out"; echo "::error::instalar-node.sh: $(echo "$out" | tr '\n' ' ')"; exit 1
+          fi
+          echo "$out"
           TL_NODE="$(cat "$RUNNER_TEMP/rt/node-path.txt")"
           "$TL_NODE" --version
           echo "TL_NODE=$TL_NODE" >> "$GITHUB_ENV"
@@ -59,8 +62,10 @@ jobs:
         run: |
           "$TL_NODE" --input-type=module -e "
             const { download } = await import('./scripts/baixar-cloudflared.js');
-            const r = await download({ dest: process.env.RUNNER_TEMP + '/rt' });
-            console.log('ok', r.path, r.version);
+            try {
+              const r = await download({ dest: process.env.RUNNER_TEMP + '/rt' });
+              console.log('ok', r.path, r.version);
+            } catch (e) { console.log('::error::baixar-cloudflared: ' + e.message); process.exit(1); }
           "
           ls -la "$RUNNER_TEMP/rt"
           "$RUNNER_TEMP/rt/cloudflared$([ "$RUNNER_OS" = Windows ] && echo .exe)" --version
@@ -77,7 +82,7 @@ jobs:
             const run = (cmd, args, o) => (cmd === 'where' || cmd === 'which' ? { status: 1 } : spawnSync(cmd, args, o));
             const f = findCloudflared({ runtimeDir: process.env.RUNNER_TEMP + '/rt', env: {}, run });
             console.log(f);
-            if (!f || (process.platform === 'win32' && !f.verified)) process.exit(1);
+            if (!f || (process.platform === 'win32' && !f.verified)) { console.log('::error::cloudflared baixado nao foi aceito: ' + JSON.stringify(f)); process.exit(1); }
           "
 
       - name: Autoteste com o Node.js baixado

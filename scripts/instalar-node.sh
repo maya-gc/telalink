@@ -33,11 +33,14 @@ sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d
 
 say "Node.js nao encontrado: baixando a versao oficial (so na primeira vez)..."
 # index.json: um objeto por linha; a primeira linha com "lts" diferente de false e a LTS mais nova.
-ver="$(curl -fsSL "$DIST/index.json" | tr '{' '\n' | grep '"version"' | grep -v '"lts":false' | grep "\"$os-$arch\"\|\"osx-$arch-tar\"" | head -1 | sed 's/.*"version":"\(v[0-9.]*\)".*/\1/')"
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+curl -fsSL "$DIST/index.json" -o "$tmp/index.json"
+# (sem "head": cortar o fluxo cedo faz o grep falhar com "write error" quando o
+#  sinal SIGPIPE esta ignorado, como acontece ao rodar a partir do Node.js)
+ver="$(tr '{' '\n' < "$tmp/index.json" | grep '"version"' | grep -v '"lts":false' | grep -E "\"$os-$arch\"|\"osx-$arch-tar\"" | sed -n '1s/.*"version":"\(v[0-9.]*\)".*/\1/p')"
 [ -n "$ver" ] || { echo "  [ERRO] nao encontrei a versao LTS"; exit 1; }
 name="node-$ver-$os-$arch"; file="$name.tar.gz"
 say "Versao LTS: $ver ($os-$arch)"
-tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "$DIST/$ver/$file" -o "$tmp/$file"
 expected="$(curl -fsSL "$DIST/$ver/SHASUMS256.txt" | awk -v f="$file" '$2 == f { print $1 }')"
 [ -n "$expected" ] || { echo "  [ERRO] $file nao esta na lista oficial de hashes"; exit 1; }

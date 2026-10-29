@@ -64,7 +64,9 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
   $zip = Join-Path $tmp $zipName
   Invoke-WebRequest -Uri "$DistUrl/$ver/$zipName" -OutFile $zip -UseBasicParsing
-  $sums = [string](Invoke-WebRequest -Uri "$DistUrl/$ver/SHASUMS256.txt" -UseBasicParsing).Content
+  $resp = Invoke-WebRequest -Uri "$DistUrl/$ver/SHASUMS256.txt" -UseBasicParsing
+  # Sem tipo de conteudo no servidor, o PowerShell entrega bytes: converte para texto.
+  $sums = if ($resp.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($resp.Content) } else { [string]$resp.Content }
   $line = ($sums -split "`n") | Where-Object { $_ -match ('^([0-9a-f]{64})\s+' + [regex]::Escape($zipName) + '\s*$') } | Select-Object -First 1
   if (-not $line) { throw "o arquivo $zipName nao esta na lista oficial de hashes" }
   $expected = ($line -split '\s+')[0].ToLower()

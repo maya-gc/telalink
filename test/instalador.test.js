@@ -72,13 +72,15 @@ describe('cloudflared: download verificado', () => {
 async function fakeDist({ files, sums }) {
   const srv = http.createServer((req, res) => {
     const f = files[req.url];
-    if (req.url.endsWith('/SHASUMS256.txt')) return res.end(sums);
+    if (req.url.endsWith('/SHASUMS256.txt')) return res.end(sums);   // sem content-type de proposito (robustez)
     if (!f) { res.statusCode = 404; return res.end(); }
     res.end(f);
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   return { url: `http://127.0.0.1:${srv.address().port}`, close: () => srv.close() };
 }
+// O script roda com SIGPIPE ignorado, como no GitHub Actions e quando chamado
+// por outros programas: pega o erro de cortar o fluxo cedo ("grep: write error").
 const runAsync = (cmd, args, opts) => new Promise((resolve) => {
   const c = spawn(cmd, args, opts); let out = '';
   c.stdout.on('data', (d) => (out += d)); c.stderr.on('data', (d) => (out += d));
@@ -103,6 +105,8 @@ describe('Node.js portatil no Linux/macOS (instalar-node.sh)', { skip: process.p
   const index = JSON.stringify([
     { version: 'v99.0.0', lts: false, files: [`${os}-${arch}`, `osx-${arch}-tar`] },
     { version: ver, lts: 'Teste', files: [`${os}-${arch}`, `osx-${arch}-tar`] },
+    // Lista grande como a real (~1 MB): pega o problema de cortar o fluxo cedo (SIGPIPE).
+    ...Array.from({ length: 8000 }, (_, i) => ({ version: `v1.${i}.0`, lts: 'Antiga', files: [`${os}-${arch}`, `osx-${arch}-tar`] })),
   ]).replace(/\},\{/g, '},\n{');
 
   test('instala o LTS na pasta .runtime e grava o caminho; arquivo adulterado e RECUSADO', async (t) => {
@@ -113,7 +117,7 @@ describe('Node.js portatil no Linux/macOS (instalar-node.sh)', { skip: process.p
     const env = { ...process.env, TELALINK_FORCE: '1', TELALINK_RUNTIME: dest, TELALINK_SKIP_SIGNATURE: '1' };
 
     const good = await fakeDist({ files, sums: `${sha(tgz)}  ${name}.tar.gz\n${'b'.repeat(64)}  outro.tar.gz\n` });
-    const r = await runAsync('bash', [join(ROOT, 'scripts', 'instalar-node.sh')], { env: { ...env, TELALINK_NODE_DIST: good.url } });
+    const r = await runAsync('bash', ['-c', 'trap "" PIPE; exec bash "$0"', join(ROOT, 'scripts', 'instalar-node.sh')], { env: { ...env, TELALINK_NODE_DIST: good.url } });
     good.close();
     assert.equal(r.status, 0, r.out);
     assert.match(r.out, /SHA-256 conferido/);
@@ -124,7 +128,7 @@ describe('Node.js portatil no Linux/macOS (instalar-node.sh)', { skip: process.p
 
     rmSync(join(dest, 'node'), { recursive: true, force: true });
     const bad = await fakeDist({ files, sums: `${'c'.repeat(64)}  ${name}.tar.gz\n` });
-    const r2 = await runAsync('bash', [join(ROOT, 'scripts', 'instalar-node.sh')], { env: { ...env, TELALINK_NODE_DIST: bad.url } });
+    const r2 = await runAsync('bash', ['-c', 'trap "" PIPE; exec bash "$0"', join(ROOT, 'scripts', 'instalar-node.sh')], { env: { ...env, TELALINK_NODE_DIST: bad.url } });
     bad.close();
     assert.notEqual(r2.status, 0);
     assert.match(r2.out, /SHA-256 NAO confere/);
@@ -134,7 +138,7 @@ describe('Node.js portatil no Linux/macOS (instalar-node.sh)', { skip: process.p
   test('ja tem Node.js 20+: usa o do sistema, sem baixar nada', async (t) => {
     const dest = mkdtempSync(join(tmpdir(), 'tl-rt-'));
     t.after(() => rmSync(dest, { recursive: true, force: true }));
-    const r = await runAsync('bash', [join(ROOT, 'scripts', 'instalar-node.sh')], {
+    const r = await runAsync('bash', ['-c', 'trap "" PIPE; exec bash "$0"', join(ROOT, 'scripts', 'instalar-node.sh')], {
       env: { ...process.env, PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, TELALINK_RUNTIME: dest, TELALINK_NODE_DIST: 'http://127.0.0.1:9' },
     });
     assert.equal(r.status, 0, r.out);
