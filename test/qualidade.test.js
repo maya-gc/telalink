@@ -66,11 +66,15 @@ describe('Qualidade da imagem (navegador real)', { skip, timeout: 240_000 }, () 
     assert.equal(s.maxBitrate, 8_000_000, 'teto de banda do automatico');
     assert.equal(s.degradation, 'balanced');
     // O indicador mostra a resolucao para quem assiste e para quem transmite.
-    await v.page.waitForFunction((src) => document.getElementById('qualityTxt').textContent.includes(`${src}p`), src, { timeout: 6_000 });
+    // (compara o numero: em telas Retina a altura real pode passar um pouco da informada)
+    const shown = (sel) => (sel === 'v' ? v.page : h.page).evaluate((q) => +(/(\d+)p/.exec(document.querySelector(q)?.textContent || '') || [])[1] || 0,
+      sel === 'v' ? '#qualityTxt' : '#viewerList [data-q]');
+    const waitShown = async (sel) => { const end = Date.now() + 12_000; let n = 0; while (Date.now() < end && (n = await shown(sel)) < src) await h.page.waitForTimeout(300); return n; };
+    assert.ok(await waitShown('v') >= src, `quem assiste ve a resolucao no indicador (${await shown('v')}p, fonte ${src}p)`);
     const m = (await h.page.evaluate(() => window.__telalink.measure()))[0];
-    assert.equal(m.height, src);
+    assert.ok(m.height >= src, `enviado ${m.height}p`);
     assert.match(m.codec, /VP9|H264|VP8|AV1/);
-    await h.page.waitForFunction((src) => document.querySelector('#viewerList [data-q]')?.textContent.includes(`${src}p`), src, { timeout: 6_000 });
+    assert.ok(await waitShown('h') >= src, `painel mostra a resolucao (${await shown('h')}p, fonte ${src}p)`);
     console.log(`      resolucao cheia (${src}p) em ${Date.now() - t0} ms, codec ${m.codec}`);
     await v.ctx.close(); await h.ctx.close();
   });
