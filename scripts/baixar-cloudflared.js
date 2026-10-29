@@ -13,7 +13,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync, renameSync, chmodSync, rmSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { verifyAuthenticode, findCloudflared } from '../src/tunnel.js';
@@ -67,7 +66,8 @@ export async function download({ dest = join(ROOT, '.runtime'), platform = proce
   log('SHA-256 conferido.');
 
   mkdirSync(dest, { recursive: true });
-  const work = join(tmpdir(), `telalink-cf-${process.pid}-${Date.now()}`);
+  // Pasta de trabalho DENTRO do destino: mover entre discos (C: -> D:) falha.
+  const work = join(dest, `.baixando-${process.pid}-${Date.now()}`);
   mkdirSync(work, { recursive: true });
   try {
     let bin = join(work, binaryName(platform));

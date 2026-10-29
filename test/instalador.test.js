@@ -11,7 +11,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, mkdirSync, copyFileSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, copyFileSync, readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawnSync, spawn } from 'node:child_process';
@@ -53,6 +53,7 @@ describe('cloudflared: download verificado', () => {
     const r = await download({ dest, platform: 'linux', arch: 'x64', fetchFn: fakeFetch(), log: () => {} });
     assert.equal(r.version, '2026.10.0');
     assert.deepEqual(readFileSync(r.path), BIN);
+    assert.deepEqual(readdirSync(dest).sort(), ['cloudflared', 'cloudflared-version.txt'], 'pasta de trabalho temporaria removida');
     if (process.platform !== 'win32') assert.ok(statSync(r.path).mode & 0o100, 'executavel');
   });
 
