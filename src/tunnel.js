@@ -29,12 +29,23 @@ export function windowsCandidates(env = process.env) {
 // Confere a assinatura Authenticode via PowerShell (recurso nativo do Windows).
 // O caminho vai por variavel de ambiente: nada de montar comando com texto externo.
 export function verifyAuthenticode(file, run = spawnSync, { signer = SIGNER_RE, signerName = 'Cloudflare' } = {}) {
-  const script = '$s=Get-AuthenticodeSignature -LiteralPath $env:TL_FILE; [Console]::Out.Write("$($s.Status)|$($s.SignerCertificate.Subject)")';
-  const r = run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-    env: { ...process.env, TL_FILE: file }, encoding: 'utf8', windowsHide: true, timeout: 20_000,
+  const script = "$ErrorActionPreference='Stop'; Import-Module Microsoft.PowerShell.Security; "
+    + '$s=Get-AuthenticodeSignature -LiteralPath $env:TL_FILE; [Console]::Out.Write("TL|$($s.Status)|$($s.SignerCertificate.Subject)")';
+  // Caminho completo do Windows PowerShell (nao depende do PATH) e sem o
+  // PSModulePath herdado: vindo do PowerShell 7 ele quebra o modulo de assinaturas.
+  const root = process.env.SystemRoot || 'C:\\Windows';
+  const ps = run === spawnSync ? win32.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') : 'powershell.exe';
+  const env = { ...process.env, TL_FILE: file };
+  for (const k of Object.keys(env)) if (k.toLowerCase() === 'psmodulepath') delete env[k];
+  const r = run(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+    env, encoding: 'utf8', windowsHide: true, timeout: 20_000,
   });
-  if (r.status !== 0) return { valid: false, reason: 'nao foi possivel verificar a assinatura' };
-  const [status, subject = ''] = String(r.stdout).split('|');
+  const out = String(r.stdout || '');
+  if (r.status !== 0 || !out.startsWith('TL|')) {
+    const detail = String(r.stderr || '').trim().split(/\r?\n/)[0];
+    return { valid: false, reason: `nao foi possivel verificar a assinatura${detail ? ` (${detail.slice(0, 160)})` : ''}` };
+  }
+  const [, status, subject = ''] = out.split('|');
   if (status !== 'Valid') return { valid: false, reason: `assinatura ${status || 'ausente'}` };
   if (!signer.test(subject)) return { valid: false, reason: `assinado, mas nao pela ${signerName}` };
   return { valid: true, signer: 'Cloudflare, Inc.' };

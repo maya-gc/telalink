@@ -117,11 +117,11 @@ describe('Tunel SSH (localhost.run)', () => {
   test('findSsh: no Windows exige assinatura da Microsoft no ssh.exe', () => {
     const run = (cmd, args, opts) => {
       if (cmd === 'where') return { status: 1, stdout: '' };
-      return { status: 0, stdout: opts.env.TL_FILE.includes('System32') ? 'Valid|CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond' : 'NotSigned|' };
+      return { status: 0, stdout: opts.env.TL_FILE.includes('System32') ? 'TL|Valid|CN=Microsoft Windows, O=Microsoft Corporation, L=Redmond' : 'TL|NotSigned|' };
     };
     const r = findSsh({ platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run, exists: () => true });
     assert.deepEqual(r, { path: 'C:\\Windows\\System32\\OpenSSH\\ssh.exe', verified: true });
-    const bad = (cmd) => (cmd === 'where' ? { status: 1 } : { status: 0, stdout: 'Valid|CN=Outro, O=Outra Empresa' });
+    const bad = (cmd) => (cmd === 'where' ? { status: 1 } : { status: 0, stdout: 'TL|Valid|CN=Outro, O=Outra Empresa' });
     assert.equal(findSsh({ platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, run: bad, exists: () => true }), null);
   });
 

@@ -20,7 +20,7 @@ function fakeRun({ where = [], sig = {} } = {}) {
   const run = (cmd, args, opts) => {
     calls.push({ cmd, args, opts });
     if (cmd === 'where' || cmd === 'which') return where.length ? { status: 0, stdout: where.join('\r\n') } : { status: 1, stdout: '' };
-    if (cmd === 'powershell.exe') return { status: 0, stdout: sig[opts.env.TL_FILE] ?? 'NotSigned|' };
+    if (cmd === 'powershell.exe') return { status: 0, stdout: 'TL|' + (sig[opts.env.TL_FILE] ?? 'NotSigned|') };
     return { status: 1 };
   };
   run.calls = calls;
@@ -87,12 +87,20 @@ describe('Localizar e verificar o cloudflared', () => {
     assert.deepEqual(r, { path: '/usr/bin/cloudflared', verified: false, signer: null });
   });
 
+  test('falha ao rodar o PowerShell vira motivo claro (nunca "valido")', () => {
+    const v = verifyAuthenticode('C:\\x.exe', () => ({ status: 0, stdout: '', stderr: 'Get-AuthenticodeSignature : modulo nao carregou\r\nmais' }));
+    assert.equal(v.valid, false);
+    assert.match(v.reason, /nao foi possivel verificar a assinatura \(Get-AuthenticodeSignature : modulo nao carregou\)/);
+    const env = []; verifyAuthenticode('C:\\x.exe', (cmd, args, o) => { env.push(o.env); return { status: 1 }; });
+    assert.ok(!Object.keys(env[0]).some((k) => k.toLowerCase() === 'psmodulepath'), 'nao herda o PSModulePath');
+  });
+
   test('Windows REAL: um executavel da Microsoft e "valido" mas recusado por nao ser da Cloudflare',
     { skip: process.platform !== 'win32' && 'so roda no Windows' }, () => {
       const notepad = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'notepad.exe');
       const v = verifyAuthenticode(notepad);
       assert.equal(v.valid, false);
-      assert.match(v.reason, /nao pela Cloudflare|assinatura/);
+      assert.match(v.reason, /nao pela Cloudflare/, `a verificacao em si precisa funcionar: ${v.reason}`);
     });
 });
 
