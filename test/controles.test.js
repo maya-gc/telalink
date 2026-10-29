@@ -159,9 +159,13 @@ describe('Controles da transmissao (navegador real)', { skip, timeout: 240_000 }
   test('qualidade "Economica" durante a transmissao: quem assiste recebe no maximo 480p', async () => {
     const h = await hostScreen();
     const v = await viewer(h.link, h.pin);
-    // O WebRTC comeca baixo e sobe conforme mede a internet: espera passar de 480p.
-    await v.page.waitForFunction(() => document.getElementById('remote').videoHeight > 480, null, { timeout: 20_000 });
+    await v.page.waitForFunction(() => document.getElementById('remote').videoHeight > 0, null, { timeout: 20_000 });
+    const antes = await h.page.evaluate(() => window.__telalink.sending());
+    assert.ok(antes.length && antes[0].height > 480, `automatico envia acima de 480p (${JSON.stringify(antes)})`);
     await h.page.selectOption('#liveQuality', 'economica');
+    // O que o transmissor aplicou (nao depende da velocidade da maquina de teste)...
+    await h.page.waitForFunction(async () => { const s = await window.__telalink.sending(); return s.length && s[0].height <= 480 && s[0].maxBitrate === 800_000; }, null, { timeout: 10_000 });
+    // ...e o que chega de fato a quem assiste.
     await v.page.waitForFunction(() => { const x = document.getElementById('remote'); return x.videoHeight > 0 && x.videoHeight <= 480; }, null, { timeout: 20_000 });
     await v.ctx.close(); await h.ctx.close();
   });

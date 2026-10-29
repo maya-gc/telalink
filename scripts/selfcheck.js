@@ -4,7 +4,7 @@
 //  testa o fluxo essencial e desliga. Sai com codigo 1 se algo falhar.
 // =============================================================================
 import { startServer } from '../src/server.js';
-import { findCloudflared, findSsh } from '../src/tunnel.js';
+import { findCloudflared, findSsh, diagnoseSsh } from '../src/tunnel.js';
 import { generateSessionKey, deriveKeys, sealBytes, openBytes } from '../public/crypto.js';
 
 const watchdog = setTimeout(() => {
@@ -69,7 +69,11 @@ if (process.env.TUNNEL !== '0') {
     const ssh = cf ? null : findSsh();
     if (cf) check(true, `link externo: Cloudflare${cf.verified ? ' (assinatura digital verificada)' : ''}`);
     else if (ssh) check(true, `link externo: SSH do sistema (sem instalar nada)${ssh.verified ? ', assinatura Microsoft verificada' : ''}`);
-    else warnings.push('nenhum metodo de link externo disponivel: so funciona neste PC');
+    else {
+      const motivos = diagnoseSsh().map((c) => `${c.path}: ${c.reason}`).join('; ');
+      warnings.push(`nenhum metodo de link externo disponivel: so funciona neste PC${motivos ? ` (${motivos})` : ''}`);
+      if (process.platform === 'win32') warnings.push('para o link externo, ative "Cliente OpenSSH" em Configuracoes > Sistema > Recursos opcionais');
+    }
   } catch (err) {
     warnings.push(`link externo desativado: ${err.message}`);
   }

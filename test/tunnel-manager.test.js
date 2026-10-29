@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TunnelManager } from '../src/tunnel-manager.js';
-import { SshTunnel, parseSshTunnelUrl, findSsh } from '../src/tunnel.js';
+import { SshTunnel, parseSshTunnelUrl, findSsh, diagnoseSsh } from '../src/tunnel.js';
 import { applyUpdate, DEFAULTS, SettingsStore } from '../src/settings.js';
 
 const FAKE_SSH = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'fake-ssh.js');
@@ -128,7 +128,7 @@ describe('Tunel SSH (localhost.run)', () => {
   test('Windows REAL: o ssh.exe do sistema existe e e da Microsoft',
     { skip: process.platform !== 'win32' && 'so roda no Windows' }, () => {
       const r = findSsh();
-      assert.ok(r, 'OpenSSH do Windows nao encontrado');
+      assert.ok(r, `OpenSSH do Windows nao aceito: ${JSON.stringify(diagnoseSsh())}`);
       assert.equal(r.verified, true);
     });
 });

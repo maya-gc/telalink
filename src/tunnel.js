@@ -186,19 +186,27 @@ export const parseSshTunnelUrl = (text) => {
 const MICROSOFT_RE = /\bO="?Microsoft Corporation"?(,|$)/;
 
 // Acha o ssh do sistema. No Windows exige assinatura valida da Microsoft.
-export function findSsh({ platform = process.platform, env = process.env, run = spawnSync, exists = existsSync } = {}) {
+// Lista cada ssh encontrado e o resultado da verificacao (usado no Diagnostico).
+export function diagnoseSsh(opts = {}) {
+  const { platform = process.platform, env = process.env, run = spawnSync, exists = existsSync } = opts;
   const candidates = [];
   if (env.TELALINK_SSH_PATH) candidates.push(env.TELALINK_SSH_PATH);
   if (platform === 'win32') candidates.push(win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'OpenSSH', 'ssh.exe'));
   const r = run(platform === 'win32' ? 'where' : 'which', ['ssh'], { encoding: 'utf8', windowsHide: true });
   if (r.status === 0) candidates.push(...String(r.stdout).split(/\r?\n/).map((x) => x.trim()).filter(Boolean));
-  const unique = [...new Set(candidates)].filter((p) => exists(p));
-  if (!unique.length) return null;
-  if (platform !== 'win32' || env.TELALINK_SSH_PATH) return { path: unique[0], verified: false };
-  for (const p of unique) {
-    if (verifyAuthenticode(p, run, { signer: MICROSOFT_RE, signerName: 'Microsoft' }).valid) return { path: p, verified: true };
-  }
-  return null;
+  return [...new Set(candidates)].map((path) => {
+    if (!exists(path)) return { path, ok: false, reason: 'nao existe' };
+    if (platform !== 'win32' || env.TELALINK_SSH_PATH) return { path, ok: true, verified: false };
+    const v = verifyAuthenticode(path, run, { signer: MICROSOFT_RE, signerName: 'Microsoft' });
+    return { path, ok: v.valid, verified: v.valid, reason: v.reason };
+  });
+}
+
+// Retorna { path, verified } do primeiro ssh aceito, ou null.
+// No Windows, so aceita ssh com assinatura valida da Microsoft.
+export function findSsh(opts = {}) {
+  const ok = diagnoseSsh(opts).find((c) => c.ok);
+  return ok ? { path: ok.path, verified: ok.verified } : null;
 }
 
 export class SshTunnel extends Tunnel {

@@ -26,6 +26,19 @@ const relayViewers = new Set();
 window.__telalink = {
   get viewers() { return [...viewers.entries()].map(([id, v]) => ({ id, transport: v.transport })); },
   get relay() { return relay ? { ...relay.stats } : null; },
+  // Parametros de envio aplicados a cada espectador (altura efetiva e banda).
+  async sending() {
+    const out = [];
+    for (const v of viewers.values()) {
+      for (const s of v.pc?.getSenders() || []) {
+        if (s.track?.kind !== 'video') continue;
+        const e = s.getParameters().encodings?.[0] || {};
+        const h = s.track.getSettings().height || 0;
+        out.push({ trackHeight: h, scale: e.scaleResolutionDownBy || 1, height: Math.round(h / (e.scaleResolutionDownBy || 1)), maxBitrate: e.maxBitrate || null });
+      }
+    }
+    return out;
+  },
   get state() {
     return output ? { source: output.source, paused: output.paused, muted: output.muted, volume: output.volume,
       quality: prefs.quality, fps: prefs.fps, locked, policy } : null;
