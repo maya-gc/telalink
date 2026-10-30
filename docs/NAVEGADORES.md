@@ -39,3 +39,16 @@ Workflow **navegadores** no GitHub Actions (a cada envio e toda semana, para peg
 | macOS | WebKit, Chrome e o **Safari de verdade** (via `safaridriver` da Apple) |
 
 Para cada um: assistir pela conexão direta, assistir pela retransmissão (Máxima segurança) e, onde o navegador permite automatizar a escolha de tela, transmitir. Os testes do dia a dia (`npm test`) usam o Chromium.
+
+### Último resultado (30/10/2026)
+
+| Navegador | Assistir (padrão) | Assistir (Máxima segurança) | Transmitir |
+|---|---|---|---|
+| Chrome (Linux, Windows, macOS) | ✅ direta | ✅ | ✅ |
+| Edge (Windows) | ✅ direta | ✅ | ✅ |
+| Brave (Windows) | ✅ direta | ✅ | ✅ |
+| Firefox (Linux, Windows) | ✅ direta | ✅ | ✅ no Windows (no Linux a escolha de tela não é automatizável no teste) |
+| WebKit (Linux, macOS) | ✅ direta | ✅ | ✅ no macOS |
+| **Safari 26.6 real (macOS)** | ✅ (*) | ✅ | — (escolha de tela não automatizável) |
+
+(*) Na máquina de teste do GitHub a conexão direta do Safari não recebe resposta da rede, e o TelaLink troca sozinho para a retransmissão em poucos segundos. Esse é exatamente o comportamento esperado em redes que bloqueiam a conexão direta.
