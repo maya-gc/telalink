@@ -15,7 +15,8 @@ const sessionKey = keyFromHash(location.hash);
 
 let ws, pc, channel, keys, viewerId, receiver, audioCtx, p2pTimer;
 // Reconexao automatica: se a conexao cair, tenta voltar sozinho (mesmo PIN).
-let upgrading = false;   // passando da retransmissao para a conexao direta
+let upgrading = false;
+let fallingBack = false;   // passando da retransmissao para a conexao direta
 let joinedPin = null, ended = false, retry = 0, retryTimer = null, offline = false;
 const RETRY_DELAYS = [1, 2, 3, 5, 8, 10, 10, 10, 10, 10];   // segundos (~70 s no total)
 let iceServers = [];
@@ -29,6 +30,13 @@ window.__telalink = {
   get stats() { return receiver ? { ...receiver.stats } : null; },
   get diag() { return diag; },
   quality: () => measureQuality(),
+  // Quadros recebidos (decodificados) ate agora, em qualquer navegador.
+  async framesReceived() {
+    if (transport === 'retransmissao') return receiver?.stats.framesDecoded || 0;
+    let n = 0;
+    try { (await pc?.getStats())?.forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') n = r.framesDecoded || 0; }); } catch {}
+    return n;
+  },
 };
 const candType = (c) => (/ typ (\w+)/.exec(c?.candidate || '') || [])[1] || '?';
 
@@ -217,10 +225,15 @@ async function onHostSignal(p) {
   if (p.kind === 'sdp') {
     if (transport === 'retransmissao' && !upgrading) return;
     if (!pc) createPeer();
-    await pc.setRemoteDescription(p.sdp);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    return sendSig({ kind: 'sdp', sdp: pc.localDescription.toJSON() });
+    // Limite de tempo: se o navegador travar aqui, a fila de mensagens segue
+    // e a troca automatica para a retransmissao continua funcionando.
+    const steps = (async () => {
+      await pc.setRemoteDescription(p.sdp);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      return sendSig({ kind: 'sdp', sdp: pc.localDescription.toJSON() });
+    })();
+    return Promise.race([steps, new Promise((r) => setTimeout(r, 5000))]).catch((e) => { diag.states.push('sdp-erro:' + e.name); fallbackToRelay(); });
   }
   if (p.kind === 'ice' && pc) { diag.remote.push(candType(p.candidate)); await pc.addIceCandidate(p.candidate).catch((e) => diag.states.push('addIce-erro:' + e.name)); }
 }
@@ -281,10 +294,18 @@ function watchNoResponse(start) {
 }
 
 async function fallbackToRelay() {
-  if (transport === 'retransmissao') return;
+  if (transport === 'retransmissao' || fallingBack) return;
+  fallingBack = true;
+  diag.states.push('troca-para-retransmissao');
   clearTimeout(p2pTimer);
-  if (pc) { await snapshotPairs(pc); pc.close(); pc = null; }
-  await sendSig({ kind: 'bye-p2p' });
+  if (pc) {
+    // Alguns navegadores (Safari) podem nao responder getStats numa conexao
+    // que falhou: espera no maximo 1 s pelo diagnostico.
+    await Promise.race([snapshotPairs(pc), new Promise((r) => setTimeout(r, 1000))]);
+    try { pc.close(); } catch {}
+    pc = null;
+  }
+  sendSig({ kind: 'bye-p2p' }).catch(() => {});
   startRelay();
 }
 
@@ -322,6 +343,7 @@ function showStage(kind) {
 
 function cleanup() {
   clearTimeout(p2pTimer);
+  fallingBack = false;
   pc?.close(); pc = null;
   receiver?.close(); receiver = null;
   setTransport('conectando');

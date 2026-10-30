@@ -82,9 +82,7 @@ async function watch(browser, link, pin) {
   }, null, { timeout: 45_000 });
   return { page, ctx };
 }
-const frames = (p) => p.evaluate(() => (window.__telalink.transport === 'retransmissao'
-  ? window.__telalink.stats.framesDecoded
-  : (document.getElementById('remote').getVideoPlaybackQuality?.().totalVideoFrames ?? Math.round(document.getElementById('remote').currentTime * 30))));
+const frames = (p) => p.evaluate(() => window.__telalink.framesReceived());
 async function flowing(p) {
   const a = await frames(p);
   await p.waitForTimeout(3000);

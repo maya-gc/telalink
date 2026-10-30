@@ -59,10 +59,19 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install brave -y --no-progress
-          $p = 'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe'
-          if (-not (Test-Path $p)) { throw 'Brave nao instalado' }
-          "BRAVE_PATH=$p" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          choco install brave -y --no-progress --ignore-checksums 2>&1 | Select-Object -Last 5
+          $cands = @("$env:ProgramFiles\BraveSoftware\Brave-Browser\Application\brave.exe",
+                     "${env:ProgramFiles(x86)}\BraveSoftware\Brave-Browser\Application\brave.exe",
+                     "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\Application\brave.exe")
+          $p = $cands | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $p) { $p = Get-ChildItem -Path $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA -Filter brave.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }
+          if ($p) {
+            "BRAVE_PATH=$p" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Output "::notice::Brave encontrado em $p"
+          } else {
+            Write-Output "::warning::Brave nao pode ser instalado nesta maquina de teste; testando os demais navegadores"
+            "TELALINK_BROWSERS=msedge,chrome,firefox" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
 
       - name: Testes nos navegadores (${{ matrix.browsers }})
         shell: bash

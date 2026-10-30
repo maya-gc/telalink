@@ -22,12 +22,17 @@ export function wsURL() {
 export function openSocket({ onJson, onBinary, onClose }) {
   const ws = new WebSocket(wsURL());
   ws.binaryType = 'arraybuffer';
-  let chain = Promise.resolve();
+  // Duas filas separadas: uma mensagem de sinalizacao demorada (ex.: o Safari
+  // travando numa conexao direta que nao vai sair) nao segura a imagem da
+  // retransmissao, e vice-versa. Cada fila mantem sua ordem.
+  let chain = Promise.resolve(), binChain = Promise.resolve();
   ws.onmessage = (ev) => {
-    chain = chain.then(async () => {
-      if (typeof ev.data === 'string') await onJson?.(JSON.parse(ev.data));
-      else await onBinary?.(new Uint8Array(ev.data));
-    }).catch((err) => console.error('[telalink]', err));
+    if (typeof ev.data === 'string') {
+      chain = chain.then(() => onJson?.(JSON.parse(ev.data))).catch((err) => console.error('[telalink]', err));
+    } else {
+      const bytes = new Uint8Array(ev.data);
+      binChain = binChain.then(() => onBinary?.(bytes)).catch((err) => console.error('[telalink]', err));
+    }
   };
   ws.onclose = () => onClose?.();
   ws.json = (obj) => { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); };

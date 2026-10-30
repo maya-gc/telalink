@@ -49,20 +49,18 @@ for (const policy of ['auto', 'relay']) {
     const s = `/session/${session}`;
     await wd('POST', `${s}/url`, { url: link });
     await wd('POST', `${s}/execute/sync`, { script: "document.getElementById('pin').value = arguments[0]; document.getElementById('btnJoin').click();", args: [pin] });
-    const probe = `const t = window.__telalink.transport;
-      const v = document.getElementById('remote');
-      const f = t === 'retransmissao' ? (window.__telalink.stats ? window.__telalink.stats.framesDecoded : 0)
-        : (v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality().totalVideoFrames : Math.round(v.currentTime * 30));
-      return { t, f, gate: document.getElementById('gateMsg').textContent, ua: navigator.userAgent };`;
+    const probe = `const done = arguments[arguments.length - 1];
+      window.__telalink.framesReceived().then((f) => done({ t: window.__telalink.transport, f,
+        gate: document.getElementById('gateMsg').textContent, ua: navigator.userAgent, diag: window.__telalink.diag }));`;
     let first = null, last = null;
     for (let i = 0; i < 60; i++) {
-      last = await wd('POST', `${s}/execute/sync`, { script: probe, args: [] });
+      last = await wd('POST', `${s}/execute/async`, { script: probe, args: [] });
       if (last.t !== 'conectando' && last.f > 0) { if (!first) first = last; else if (last.f > first.f + 10) break; }
       await sleep(1000);
     }
     const ok = first && last.f > first.f + 10 && (policy === 'auto' || last.t === 'retransmissao');
     console.log(`${ok ? 'OK   ' : 'FALHA'} Safari assistindo — ${label}: caminho=${last?.t} quadros=${first?.f}->${last?.f} ${last?.gate || ''}`);
-    if (!ok) { failures++; console.log(`::error::Safari real (${label}) nao recebeu imagem: ${JSON.stringify(last)}`); }
+    if (!ok) { failures++; console.log(`::error::Safari real (${label}) nao recebeu imagem: ${JSON.stringify(last).slice(0, 900)}`); }
     else console.log(`::notice::Safari real (${last.ua.match(/Version\/[\d.]+/)?.[0] || 'Safari'}) — ${label}: ${last.t}, imagem chegando`);
   } catch (err) {
     failures++; console.log(`::error::Safari real (${label}): ${err.message}`);
