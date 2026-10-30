@@ -50,6 +50,7 @@ for (const policy of ['auto', 'relay']) {
     await wd('POST', `${s}/url`, { url: link });
     await wd('POST', `${s}/execute/sync`, { script: "document.getElementById('pin').value = arguments[0]; document.getElementById('btnJoin').click();", args: [pin] });
     const probe = `const done = arguments[arguments.length - 1];
+      if (!window.__telalink || !window.__telalink.framesReceived) return done({ t: 'carregando', f: 0 });
       window.__telalink.framesReceived().then((f) => done({ t: window.__telalink.transport, f,
         gate: document.getElementById('gateMsg').textContent, ua: navigator.userAgent, diag: window.__telalink.diag }));`;
     let first = null, last = null;
@@ -61,7 +62,8 @@ for (const policy of ['auto', 'relay']) {
     const ok = first && last.f > first.f + 10 && (policy === 'auto' || last.t === 'retransmissao');
     console.log(`${ok ? 'OK   ' : 'FALHA'} Safari assistindo — ${label}: caminho=${last?.t} quadros=${first?.f}->${last?.f} ${last?.gate || ''}`);
     if (!ok) { failures++; console.log(`::error::Safari real (${label}) nao recebeu imagem: ${JSON.stringify(last).slice(0, 900)}`); }
-    else console.log(`::notice::Safari real (${last.ua.match(/Version\/[\d.]+/)?.[0] || 'Safari'}) — ${label}: ${last.t}, imagem chegando`);
+    else console.log(`::notice::Safari real (${last.ua.match(/Version\/[\d.]+/)?.[0] || 'Safari'}) — ${label}: ${last.t}, imagem chegando` +
+      (policy === 'auto' ? ` | diagnostico da conexao direta: ${JSON.stringify(last.diag || {}).slice(0, 500)}` : ''));
   } catch (err) {
     failures++; console.log(`::error::Safari real (${label}): ${err.message}`);
   } finally {
