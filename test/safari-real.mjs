@@ -48,6 +48,11 @@ for (const policy of ['auto', 'relay']) {
     session = (await wd('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari' } } })).sessionId;
     const s = `/session/${session}`;
     await wd('POST', `${s}/url`, { url: link });
+    // Espera a pagina terminar de carregar (scripts prontos) antes de clicar em Entrar.
+    for (let i = 0; i < 50; i++) {
+      if (await wd('POST', `${s}/execute/sync`, { script: 'return !!(window.__telalink && window.__telalink.framesReceived)', args: [] })) break;
+      await sleep(200);
+    }
     await wd('POST', `${s}/execute/sync`, { script: "document.getElementById('pin').value = arguments[0]; document.getElementById('btnJoin').click();", args: [pin] });
     const probe = `const done = arguments[arguments.length - 1];
       if (!window.__telalink || !window.__telalink.framesReceived) return done({ t: 'carregando', f: 0 });

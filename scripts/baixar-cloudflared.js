@@ -47,8 +47,15 @@ export async function download({ dest = join(ROOT, '.runtime'), platform = proce
   const name = assetName(platform, arch);
   if (!name) throw new Error(`sistema sem versao oficial do cloudflared (${platform}/${arch})`);
   const headers = { 'user-agent': 'TelaLink', accept: 'application/vnd.github+json' };
-  const rel = await fetchFn(api, { headers, signal: AbortSignal.timeout(20_000) });
-  if (!rel.ok) throw new Error(`GitHub respondeu ${rel.status}`);
+  // No CI, o token do proprio workflow evita o limite de consultas anonimas.
+  if (process.env.GITHUB_TOKEN && api.startsWith('https://api.github.com/')) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  let rel;
+  for (let i = 0; i < 3; i++) {                     // limite/instabilidade: tenta de novo
+    rel = await fetchFn(api, { headers, signal: AbortSignal.timeout(20_000) });
+    if (rel.ok || ![403, 429, 500, 502, 503].includes(rel.status)) break;
+    await new Promise((r) => setTimeout(r, (i + 1) * (process.env.NODE_TEST_CONTEXT ? 10 : 5000)));
+  }
+  if (!rel.ok) throw new Error(`GitHub respondeu ${rel.status}${rel.status === 403 ? ' (limite de consultas; tente mais tarde)' : ''}`);
   const release = await rel.json();
   const { asset, sha } = expectedSha256(release, name);
   if (!asset) throw new Error(`arquivo ${name} nao encontrado na versao ${release.tag_name}`);

@@ -59,6 +59,7 @@ jobs:
         shell: bash
         env:
           PSModulePath: ''
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           "$TL_NODE" --input-type=module -e "
             const { download } = await import('./scripts/baixar-cloudflared.js');
