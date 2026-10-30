@@ -3,9 +3,9 @@
 //  Ordem de tentativa: conexao direta (WebRTC) -> TURN (se configurado) ->
 //  retransmissao pelo link. Tudo cifrado com a chave do "#" do link.
 // =============================================================================
-import { $, show, openSocket, describeTransport, TRANSPORT_LABEL, supportsWebCodecs } from './common.js';
+import { $, show, openSocket, describeTransport, TRANSPORT_LABEL, caps, newAudioContext, enterFullscreen, exitFullscreen, isFullscreen } from './common.js';
 import { keyFromHash, deriveKeys, SecureChannel } from './crypto.js';
-import { RelayReceiver } from './relay.js';
+import { RelayReceiver, decodableCodecs } from './relay.js';
 import { qualityText } from './media-util.js';
 
 const P2P_TIMEOUT_MS = 12_000;   // limite absoluto para a conexao direta/TURN
@@ -15,6 +15,7 @@ const sessionKey = keyFromHash(location.hash);
 
 let ws, pc, channel, keys, viewerId, receiver, audioCtx, p2pTimer;
 // Reconexao automatica: se a conexao cair, tenta voltar sozinho (mesmo PIN).
+let upgrading = false;   // passando da retransmissao para a conexao direta
 let joinedPin = null, ended = false, retry = 0, retryTimer = null, offline = false;
 const RETRY_DELAYS = [1, 2, 3, 5, 8, 10, 10, 10, 10, 10];   // segundos (~70 s no total)
 let iceServers = [];
@@ -93,7 +94,7 @@ async function join() {
   $('btnJoin').disabled = true;
   show($('gateMsg'), '', '');
   // AudioContext precisa nascer de um clique (regra dos navegadores).
-  try { audioCtx = new AudioContext({ latencyHint: 'interactive' }); } catch { audioCtx = null; }
+  audioCtx = newAudioContext({ latencyHint: 'interactive' });
   keys = await deriveKeys(sessionKey, roomId);
   joinedPin = pin;
   await openAndJoin();
@@ -197,8 +198,24 @@ async function onHostSignal(p) {
     watchNoResponse(Date.now());
     return;
   }
+  if (p.kind === 'settings') {
+    // Quem transmite mudou a configuracao: avisa aqui tambem (a imagem ja se ajusta sozinha).
+    stageMsg(`Quem transmite ajustou: ${String(p.text || '').slice(0, 120)}`);
+    clearTimeout(onHostSignal.t); onHostSignal.t = setTimeout(() => { if (!retry && !offline) stageMsg(''); }, 4000);
+    return;
+  }
+  if (p.kind === 'policy') {
+    if (p.policy === 'relay' && transport !== 'retransmissao') return fallbackToRelay();       // Maxima seguranca: ja
+    if (p.policy === 'auto' && transport === 'retransmissao' && typeof RTCPeerConnection === 'function') {
+      upgrading = true; createPeer();
+      // Se a conexao direta nao sair em 15 s, continua so na retransmissao.
+      setTimeout(() => { if (upgrading) { upgrading = false; pc?.close(); pc = null; } }, 15_000);
+      return sendSig({ kind: 'want-p2p' });                                                    // tenta a conexao direta
+    }
+    return;
+  }
   if (p.kind === 'sdp') {
-    if (transport === 'retransmissao') return;
+    if (transport === 'retransmissao' && !upgrading) return;
     if (!pc) createPeer();
     await pc.setRemoteDescription(p.sdp);
     const answer = await pc.createAnswer();
@@ -228,11 +245,17 @@ function createPeer() {
     diag.states.push(`pc:${pc?.connectionState}`);
     if (pc.connectionState === 'connected') {
       clearTimeout(p2pTimer);
+      if (upgrading) {                     // deixa a retransmissao e fica so na conexao direta
+        upgrading = false;
+        receiver?.close(); receiver = null;
+        ws.json({ type: 'relay-unsubscribe' });
+      }
       setTransport(await describeTransport(pc));
       sendSig({ kind: 'transport', mode: transport });
       showStage('video');
     } else if (pc.connectionState === 'failed' || (offline && pc.connectionState === 'disconnected')) {
       if (offline) return scheduleReconnect();
+      if (upgrading) { upgrading = false; pc.close(); pc = null; return; }     // continua na retransmissao
       fallbackToRelay();
     }
   };
@@ -265,10 +288,13 @@ async function fallbackToRelay() {
   startRelay();
 }
 
-function startRelay() {
-  if (!supportsWebCodecs()) {
-    return show($('gateMsg'), 'err', 'Sua rede bloqueia a conexão direta e este navegador não suporta a retransmissão. Use Chrome, Edge ou Firefox atualizados.');
+async function startRelay() {
+  if (!caps.relayDecode) {
+    return show($('gateMsg'), 'err', `Sua rede bloqueia a conexão direta e este ${caps.name} não suporta a retransmissão. Atualize o navegador (Chrome, Edge, Brave, Firefox 130+ ou Safari 16.4+).`);
   }
+  // Conta a quem transmite quais codecs este navegador decodifica (ex.: Safari).
+  decodableCodecs().then((codecs) => sendSig({ kind: 'relay-caps', codecs })).catch(() => {});
+  if (!caps.relayAudio) setTimeout(() => stageMsg(`Neste ${caps.name}, a retransmissão chega sem som. Para ouvir, atualize o navegador ou use Chrome, Edge, Brave ou Firefox.`), 1500);
   receiver = new RelayReceiver({ mediaKey: keys.media, canvas: $('relayCanvas'), ws, audioCtx, volume: view.muted ? 0 : view.volume / 100, onError: (e) => console.warn('[telalink relay]', e) });
   setTransport('retransmissao');
   ws.json({ type: 'relay-subscribe' });
@@ -286,7 +312,11 @@ function showStage(kind) {
   applyVolume();
   if (kind === 'video') {
     // Navegadores bloqueiam som automatico sem clique: comeca mudo e avisa.
-    $('remote').play().catch(() => { view.muted = true; applyVolume(); $('remote').play().catch(() => {}); flashBar(8000); });
+    $('remote').play().catch(() => {
+      // Safari/iPhone e outros bloqueiam som automatico: comeca mudo e pede um toque.
+      view.muted = true; applyVolume(); $('remote').play().catch(() => {}); flashBar(8000);
+      needTap = true; stageMsg('🔇 Toque ou clique na imagem para ativar o som');
+    });
   }
 }
 
@@ -335,9 +365,17 @@ $('btnPip').onclick = async () => {
   try { if (document.pictureInPictureElement) await document.exitPictureInPicture(); else await $('remote').requestPictureInPicture(); } catch {}
 };
 $('btnFull').onclick = () => {
-  if (!document.fullscreenElement) $('stage').requestFullscreen?.();
-  else document.exitFullscreen?.();
+  if (!isFullscreen($('stage'))) enterFullscreen($('stage'), $('remote'));
+  else exitFullscreen($('stage'));
 };
+// Primeiro toque/clique ativa o som se o navegador o bloqueou.
+let needTap = false;
+$('stage').addEventListener('click', () => {
+  if (!needTap) return;
+  needTap = false; view.muted = false; applyVolume();
+  $('remote').play().catch(() => {}); audioCtx?.resume?.().catch?.(() => {});
+  stageMsg('');
+});
 $('stage').addEventListener('mousemove', () => flashBar());
 $('stage').addEventListener('dblclick', () => $('btnFull').click());
 document.addEventListener('keydown', (e) => {

@@ -34,6 +34,7 @@
     </div>
     <input id="fileImages" type="file" accept="image/*" multiple class="hidden" />
     <p class="hint center" id="summary">…</p>
+    <div id="browserNote"></div>
     <div id="homeMsg"></div>
   </section>
 
@@ -98,6 +99,10 @@
 
       <div id="blackWarning" class="msg warn hidden"></div>
       <video id="preview" class="preview" muted autoplay playsinline></video>
+      <div id="captureEnded" class="msg warn hidden" role="alert">
+        O compartilhamento da tela parou — quem assiste está vendo “Transmissão pausada”.
+        <div class="row" style="margin-top:8px"><button id="btnRepick" class="small">🖥️ Escolher a tela de novo</button><button id="btnEndNow" class="ghost small">Encerrar transmissão</button></div>
+      </div>
       <div id="shareMsg"></div>
     </div>
 

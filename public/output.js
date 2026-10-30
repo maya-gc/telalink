@@ -6,6 +6,7 @@
 //  (WebRTC usa replaceTrack; a retransmissao troca o leitor de quadros).
 // =============================================================================
 import { gainFor, fitRect } from './media-util.js';
+import { newAudioContext } from './common.js';
 
 const W = 1920, H = 1080;
 
@@ -49,7 +50,7 @@ export class Output {
   init() {
     if (this.ctx) return;
     // 48 kHz: taxa nativa do Opus (44,1 kHz, comum em PCs, nao e aceita pelo codificador).
-    this.ctx = new AudioContext({ sampleRate: 48000 });
+    this.ctx = newAudioContext({ sampleRate: 48000 });
     this.gain = this.ctx.createGain();
     this.dest = this.ctx.createMediaStreamDestination();
     this.gain.connect(this.dest);

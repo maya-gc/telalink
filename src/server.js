@@ -67,7 +67,7 @@ const SECURITY_HEADERS = {
   'cache-control': 'no-store',
   'content-security-policy': CSP,
   'cross-origin-opener-policy': 'same-origin',
-  'permissions-policy': 'camera=(), microphone=(), geolocation=(), usb=(), serial=(), hid=(), bluetooth=(), payment=(), display-capture=(self), fullscreen=(self), picture-in-picture=(self), clipboard-write=(self)',
+  'permissions-policy': 'camera=(), microphone=(), geolocation=(), usb=(), serial=(), hid=(), payment=(), display-capture=(self), fullscreen=(self), picture-in-picture=(self), clipboard-write=(self)',
   'cross-origin-resource-policy': 'same-origin',
   'x-permitted-cross-domain-policies': 'none',
   'origin-agent-cluster': '?1',
@@ -383,6 +383,12 @@ export function createServer({
           send(room.host, { type: 'relay-want', viewerId: ws.meta.viewerId });
           room.lastKeyReq = 0;
           return requestKeyframe(room);
+        }
+        case 'relay-unsubscribe': {
+          // Espectador passou para a conexao direta: para de receber a retransmissao.
+          if (ws.meta.role !== 'viewer' || !room) return;
+          room.relay.delete(ws);
+          return;
         }
         case 'relay-need-key': {
           if (ws.meta.role !== 'viewer' || !room || !room.relay.has(ws)) return;

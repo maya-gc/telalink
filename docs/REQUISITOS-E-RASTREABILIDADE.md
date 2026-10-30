@@ -33,6 +33,9 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-24 | Novo PIN e aviso de tentativas erradas | `experiencia.test.js`, `seguranca.test.js` |
 | RF-25 | Aviso quando o link externo muda; relógio e título "ao vivo"; avisos de entrada/saída | `experiencia.test.js` |
 | RF-26 | Quem assiste reconecta sozinho; imagem direta continua se só o servidor cair | `experiencia.test.js` |
+| RF-27 | Salvar configurações durante a transmissão sem interromper; valem para quem transmite e quem assiste | `ao-vivo.test.js` |
+| RF-28 | Captura interrompida não fecha a transmissão (pausa + escolher de novo) | `ao-vivo.test.js` |
+| RF-29 | Funciona em Chrome, Edge, Brave, Firefox e Safari (assistir e transmitir) | `navegadores.test.js` + `safari-real.mjs` (workflow `navegadores`) |
 | RF-17 | Link externo sem instalar nada (SSH do sistema), com escolha automática do provedor | `tunnel-manager.test.js`, `tunnel.test.js` › SSH, `main.test.js` › SSH |
 
 ## Segurança

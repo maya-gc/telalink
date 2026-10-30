@@ -18,24 +18,39 @@ const OPUS_RATES = new Set([8000, 12000, 16000, 24000, 48000]);
 
 // Codecs da retransmissao, do melhor para o mais compativel. Os dois primeiros
 // so sao usados se o PC tiver codificador por HARDWARE (placa de video):
-// imagem melhor com pouco processador. VP8 funciona em qualquer navegador.
+// imagem melhor com pouco processador. Depois, por software: VP8 (Chrome, Edge,
+// Brave, Firefox) e H.264/VP9 (Safari, que nem sempre codifica VP8).
+const AVC = { avc: { format: 'annexb' } };
 export const RELAY_CODECS = [
-  { codec: 'avc1.640034', label: 'H.264', hardwareAcceleration: 'prefer-hardware', avc: { format: 'annexb' } },
+  { codec: 'avc1.640034', label: 'H.264', hardwareAcceleration: 'prefer-hardware', ...AVC },
   { codec: 'vp09.00.51.08', label: 'VP9', hardwareAcceleration: 'prefer-hardware' },
   { codec: 'vp8', label: 'VP8', hardwareAcceleration: 'no-preference' },
+  { codec: 'avc1.42e034', label: 'H.264', hardwareAcceleration: 'no-preference', ...AVC },
+  { codec: 'vp09.00.51.08', label: 'VP9', hardwareAcceleration: 'no-preference' },
 ];
 const VP8 = RELAY_CODECS[2];
+// Codecs (texto) que um espectador consegue decodificar.
+export async function decodableCodecs() {
+  if (typeof globalThis.VideoDecoder?.isConfigSupported !== 'function') return [];
+  const out = [];
+  for (const codec of [...new Set(RELAY_CODECS.map((c) => c.codec))]) {
+    try { if ((await VideoDecoder.isConfigSupported({ codec, codedWidth: 1920, codedHeight: 1080 })).supported) out.push(codec); } catch {}
+  }
+  return out;
+}
 
-export async function pickRelayCodec({ width = 1920, height = 1080, bitrate = 8_000_000, framerate = 30 } = {}, candidates = RELAY_CODECS) {
-  if (typeof globalThis.VideoEncoder?.isConfigSupported !== 'function') return VP8;
-  for (const c of candidates) {
+// allowed: lista de codecs que TODOS os espectadores decodificam (null = sem restricao).
+export async function pickRelayCodec({ width = 1920, height = 1080, bitrate = 8_000_000, framerate = 30, allowed = null } = {}, candidates = RELAY_CODECS) {
+  const list = allowed ? candidates.filter((c) => allowed.includes(c.codec)) : candidates;
+  if (typeof globalThis.VideoEncoder?.isConfigSupported !== 'function') return null;
+  for (const c of list) {
     try {
       const { codec, hardwareAcceleration, avc } = c;
       const r = await VideoEncoder.isConfigSupported({ codec, hardwareAcceleration, ...(avc ? { avc } : {}), width, height, bitrate, framerate, latencyMode: 'realtime' });
       if (r.supported) return c;
     } catch {}
   }
-  return VP8;
+  return null;
 }
 
 const even = (n) => Math.max(2, Math.floor(n / 2) * 2);
@@ -46,8 +61,9 @@ export function fitSize(w, h, maxW = MAX_W, maxH = MAX_H) {
 
 // ----------------------------------------------------------------- HOST
 export class RelaySender {
-  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 8_000_000, maxH = MAX_H, fps = 30, autoRes = false, codec = null, onError = () => {} }) {
-    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, autoRes, onError });
+  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 8_000_000, maxH = MAX_H, fps = 30, autoRes = false, codec = null, audioContext = null, onError = () => {} }) {
+    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, autoRes, onError, audioContext });
+    this.allowed = null;                   // codecs que todos os espectadores decodificam
     this.targetBitrate = bitrate;          // teto escolhido; this.bitrate = banda atual (adaptativa)
     this.codec = codec;                    // definido em start() se nao vier pronto
     this.rate = { frames: 0, bytes: 0, t: 0, fps: 0, bps: 0 };
@@ -63,8 +79,12 @@ export class RelaySender {
     if (this.running) return;
     this.running = true;
     this.forceKey = true;
-    const ready = this.codec ? Promise.resolve(this.codec) : pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps });
-    ready.then((c) => { this.codec ||= c; if (this.running) this._startVideo(); });
+    const ready = this.codec ? Promise.resolve(this.codec) : pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed });
+    ready.then((c) => {
+      this.codec ||= c;
+      if (!this.codec) return this.onError(new Error('nenhum codec de video disponivel para a retransmissao neste navegador'));
+      if (this.running) this._startVideo();
+    });
     this._startAudio();
     // A cada segundo: ajusta a banda pela fila de envio (aumenta devagar, reduz rapido).
     this.adaptTimer = setInterval(() => this._adapt(), 1000);
@@ -91,6 +111,15 @@ export class RelaySender {
 
   requestKeyframe() { this.forceKey = true; }
 
+  // Um espectador nao decodifica o codec atual (ex.: Safari): escolhe outro que todos aceitem.
+  async setAllowedCodecs(list) {
+    this.allowed = list && list.length ? list : null;
+    if (!this.codec || !this.allowed || this.allowed.includes(this.codec.codec)) return;
+    const c = await pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed });
+    if (c) { this.codec = c; this.forceKey = true; }        // proximo quadro reconfigura o codificador
+    else this.onError(new Error('os espectadores nao tem um codec de video em comum com este navegador'));
+  }
+
   setBitrate(bps) {
     this.targetBitrate = bps;
     this.bitrate = bps;
@@ -115,7 +144,8 @@ export class RelaySender {
 
   stop() {
     this.running = false;
-    clearInterval(this.adaptTimer);
+    clearInterval(this.adaptTimer); clearInterval(this.pollTimer);
+    try { this.tapNode?.disconnect(); this.tapSource?.disconnect(); } catch {}
     for (const r of [this.vreader, this.areader]) try { r?.cancel(); } catch {}
     for (const e of [this.venc, this.aenc]) try { if (e && e.state !== 'closed') e.close(); } catch {}
     this.venc = this.aenc = null;
@@ -155,7 +185,7 @@ export class RelaySender {
         // Codificador falhou (ex.: placa de video recusou): volta ao VP8, que funciona sempre.
         this.onError(e);
         this.vcfg = null; this.forceKey = true;
-        if (this.codec !== VP8) this.codec = VP8;
+        if (this.codec !== VP8 && (!this.allowed || this.allowed.includes('vp8'))) this.codec = VP8;
         if (this.running) this._makeEncoder();
       },
     });
@@ -176,13 +206,22 @@ export class RelaySender {
       };
       pump().catch((e) => { if (this.vreader === reader) this.onError(e); });
     } else if (this.previewVideo?.requestVideoFrameCallback) {
-      // Navegadores sem MediaStreamTrackProcessor: copia do <video> de pre-visualizacao.
+      // Firefox e Safari (sem MediaStreamTrackProcessor na pagina): copia cada
+      // quadro novo do <video> de pre-visualizacao.
       const tick = () => {
         if (!this.running) return;
         try { this._encodeFrame(new VideoFrame(this.previewVideo, { timestamp: Math.round(performance.now() * 1000) })); } catch {}
         this.rvfcHandle = this.previewVideo.requestVideoFrameCallback(tick);
       };
       this.rvfcHandle = this.previewVideo.requestVideoFrameCallback(tick);
+    } else if (this.previewVideo) {
+      // Ultimo recurso: copia do <video> no ritmo de quadros escolhido.
+      clearInterval(this.pollTimer);
+      this.pollTimer = setInterval(() => {
+        if (!this.running) return clearInterval(this.pollTimer);
+        if (this.previewVideo.readyState < 2) return;
+        try { this._encodeFrame(new VideoFrame(this.previewVideo, { timestamp: Math.round(performance.now() * 1000) })); } catch {}
+      }, Math.round(1000 / this.fps));
     } else {
       this.onError(new Error('navegador sem suporte a captura de quadros para a retransmissao'));
     }
@@ -225,10 +264,13 @@ export class RelaySender {
     }
   }
 
-  // ---------------- audio (exige MediaStreamTrackProcessor: Chrome/Edge)
+  // ---------------- audio
+  //  Chrome/Edge/Brave: MediaStreamTrackProcessor. Firefox/Safari: AudioWorklet
+  //  (le as amostras do som) -> AudioData -> AudioEncoder (Opus).
   _startAudio() {
     const track = this.stream.getAudioTracks()[0];
-    if (!track || typeof globalThis.MediaStreamTrackProcessor !== 'function' || typeof globalThis.AudioEncoder !== 'function') return;
+    if (!track || typeof globalThis.AudioEncoder !== 'function') return;
+    if (typeof globalThis.MediaStreamTrackProcessor !== 'function') return this._startAudioWorklet(track);
     let acfg = null;
     this.aenc = new AudioEncoder({
       output: (chunk) => {
@@ -260,6 +302,52 @@ export class RelaySender {
       }
     };
     pump().catch((e) => this.onError(e));
+  }
+
+  _makeAudioEncoder(acfg) {
+    const enc = new AudioEncoder({
+      output: (chunk) => {
+        const data = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(data);
+        this.stats.audioPackets++;
+        this._send(packPacket(this.mediaKey, {
+          kind: KIND_AUDIO, isKey: true, seq: this.aseq++, timestamp: chunk.timestamp, duration: chunk.duration || 0,
+          meta: { sr: acfg.sampleRate, ch: acfg.numberOfChannels }, data,
+        }));
+      },
+      error: (e) => this.onError(e),
+    });
+    enc.configure(acfg);
+    return enc;
+  }
+
+  async _startAudioWorklet(track) {
+    const ctx = this.audioContext;
+    if (!ctx?.audioWorklet || typeof globalThis.AudioWorkletNode !== 'function' || typeof globalThis.AudioData !== 'function') return;
+    try {
+      if (!ctx.__telalinkTap) { await ctx.audioWorklet.addModule('/audio-tap.js'); ctx.__telalinkTap = true; }
+      if (!this.running) return;
+      const acfg = { codec: 'opus', sampleRate: ctx.sampleRate, numberOfChannels: 2, bitrate: 128_000 };
+      if (!OPUS_RATES.has(acfg.sampleRate)) return this.onError(new Error(`taxa de audio ${acfg.sampleRate} nao suportada`));
+      const sup = await AudioEncoder.isConfigSupported(acfg).catch(() => ({ supported: false }));
+      if (!sup.supported) return;
+      this.aenc = this._makeAudioEncoder(acfg);
+      this.tapSource = ctx.createMediaStreamSource(new MediaStream([track]));
+      this.tapNode = new AudioWorkletNode(ctx, 'telalink-tap', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+      const silent = ctx.createGain(); silent.gain.value = 0;          // so mantem o no ativo (nao toca nada)
+      this.tapSource.connect(this.tapNode).connect(silent).connect(ctx.destination);
+      let t = 0;
+      this.tapNode.port.onmessage = ({ data: chans }) => {
+        if (!this.running || !this.aenc || this.aenc.state !== 'configured' || !chans?.length) return;
+        const frames = chans[0].length;
+        const planar = new Float32Array(frames * 2);
+        planar.set(chans[0], 0);
+        planar.set(chans[1] || chans[0], frames);
+        const ad = new AudioData({ format: 'f32-planar', sampleRate: ctx.sampleRate, numberOfFrames: frames, numberOfChannels: 2, timestamp: t, data: planar });
+        t += Math.round((frames / ctx.sampleRate) * 1e6);
+        try { if (this.ws.bufferedAmount < 4 * 1024 * 1024) this.aenc.encode(ad); } finally { ad.close(); }
+      };
+    } catch (e) { this.onError(e); }
   }
 }
 

@@ -3,7 +3,7 @@
 //  Caminho rapido: "Minha tela" -> escolher -> convite ja copiado (3 cliques).
 //  Tudo o mais (qualidade, audio, conexao) fica em Configuracoes.
 // =============================================================================
-import { $, show, openSocket, describeTransport, turnBytesSent, TRANSPORT_LABEL, supportsWebCodecs } from './common.js';
+import { $, show, openSocket, describeTransport, turnBytesSent, TRANSPORT_LABEL, supportsWebCodecs, caps, newAudioContext } from './common.js';
 import { generateSessionKey, deriveKeys, toB64url, SecureChannel } from './crypto.js';
 import { BlackScreenDetector, QUALITY, qualityPreset, captureConstraints, senderEncoding, inviteText,
   maxKbpsFor, degradationFor, withBitrateHints, orderCodecs, qualityText } from './media-util.js';
@@ -43,6 +43,7 @@ window.__telalink = {
   },
   // Qualidade realmente enviada a cada pessoa (resolucao, quadros, banda, codec).
   measure: () => measureSending(),
+  relayCodec: () => relay?.codec?.label || null,
   refreshInfo: () => loadInfo(),
   get state() {
     return output ? { source: output.source, paused: output.paused, muted: output.muted, volume: output.volume,
@@ -117,6 +118,19 @@ async function loadInfo() {
 }
 pollInfo();
 renderSummary();
+renderBrowserNotes();
+
+// Avisos do que este navegador faz (o resto funciona igual em todos).
+function renderBrowserNotes() {
+  if (!caps.screenShare) {
+    $('btnScreen').disabled = true;
+    $('btnScreen').querySelector('.tile-desc').textContent = caps.mobile
+      ? 'Celulares e tablets não compartilham a tela pelo navegador. Use um computador (ou envie Imagens).'
+      : 'Este navegador não compartilha a tela. Use Chrome, Edge, Brave, Firefox ou Safari atualizados.';
+  } else if (!caps.screenAudio) {
+    show($('browserNote'), 'warn', `No ${caps.name}, o som do computador não vai junto (limitação do navegador; a imagem funciona normalmente). Para transmitir com som, use Chrome, Edge ou Brave.`);
+  }
+}
 
 // ------------------------------------------------------------ configuracoes
 function openSettings() {
@@ -149,25 +163,64 @@ $('btnSaveSettings').onclick = async () => {
   };
   const nextPolicy = document.querySelector('input[name=policy]:checked').value;
   const nextTunnel = $('optTunnel').value;
-  // Vale na hora para esta sessao...
+  const live = !!(output && roomId);
+  const before = { ...prefs }, beforePolicy = policy;
+  // Vale na hora para esta sessao, SEM interromper a transmissao...
   prefs = next; policy = nextPolicy;
   renderSummary();
-  if (output) applyQuality();
-  closeSettings();                     // fecha na hora; salvar segue em segundo plano
-  // ...e fica salvo neste PC para as proximas.
-  try {
-    const r = await fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prefs: next, defaultMode: nextPolicy, tunnel: nextTunnel }) });
-    if (r.ok) { const s = await r.json(); conexao = { ...(conexao || {}), tunnel: s.tunnel, defaultMode: s.defaultMode }; }
-    else if (r.status !== 404) toast('Não foi possível salvar as configurações neste computador.');
-  } catch {}
+  closeSettings();                     // fecha na hora; o resto segue em segundo plano
+  // Trocar o tipo de link durante a transmissao mudaria o endereco e derrubaria
+  // quem assiste pelo link: vale a partir da proxima transmissao.
+  const tunnelChanged = nextTunnel !== (conexao?.tunnel || 'auto');
+  if (live && tunnelChanged) pendingTunnel = nextTunnel;
+  // Salva neste PC (em paralelo) e aplica na transmissao em andamento.
+  const body = { prefs: next, defaultMode: nextPolicy, ...(live && tunnelChanged ? {} : { tunnel: nextTunnel }) };
+  const saving = fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async (r) => {
+      if (r.ok) { const s = await r.json(); conexao = { ...(conexao || {}), tunnel: s.tunnel, defaultMode: s.defaultMode }; }
+      else if (r.status !== 404) toast('Não foi possível salvar as configurações neste computador.');
+    }).catch(() => {});
+  if (live) await applyLive(before, beforePolicy);
+  await saving;
 };
 
+// Aplica as configuracoes na transmissao em andamento, nos DOIS lados:
+// quem transmite (captura/envio) e quem assiste (recebe aviso; muda de caminho
+// se a seguranca mudou). Nada e reiniciado.
+let pendingTunnel = null;
+async function applyLive(before, beforePolicy) {
+  try { if (output.screenTrack) output.screenTrack.contentHint = prefs.hint; } catch {}
+  await applyQuality();
+  if (prefs.volume !== before.volume) output.setVolume(prefs.volume);
+  if (prefs.audio !== before.audio) {
+    if (!prefs.audio) output.setMuted(true);
+    else if (output.hasSourceAudio) output.setMuted(false);
+    else show($('shareMsg'), 'warn', 'Para incluir o som agora, clique em “Trocar” → “Outra tela/janela” e marque “Compartilhar áudio”.');
+  }
+  const q = qualityPreset(prefs.quality);
+  const text = `${q.label} · ${prefs.fps} qps${prefs.bitrate ? ` · até ${prefs.bitrate} Mbps` : ''}`;
+  for (const id of viewers.keys()) {
+    sendSig(id, { kind: 'settings', text }).catch(() => {});
+    if (policy !== beforePolicy) sendSig(id, { kind: 'policy', policy }).catch(() => {});
+  }
+  const extra = pendingTunnel ? ' O novo tipo de link vale na próxima transmissão.' : '';
+  toast(`✅ Aplicado sem interromper: ${text}.${policy !== beforePolicy ? (policy === 'relay' ? ' Quem assiste passou para a Máxima segurança.' : ' Segurança padrão.') : ''}${extra}`);
+}
+
 // ------------------------------------------------------------ comecar (2o clique)
+// A tela e capturada JA na resolucao maxima (ate 4K): mudar a qualidade depois
+// so ajusta o ENVIO (instantaneo e seguro). Pedir ao navegador para recapturar
+// em resolucao maior durante a transmissao congela ou encerra a captura em
+// alguns computadores.
+// Altura NATIVA da tela (tamanho x escala do Windows), ate 4K: pedir mais que
+// isso faz alguns capturadores ampliarem a imagem a toa (gasta processador).
+const CAPTURE_MAX_H = Math.min(2160, Math.max(720, Math.round((globalThis.screen?.height || 1080) * (globalThis.devicePixelRatio || 1))));
+let captureFps = 30;                     // teto de quadros/s pedido na captura atual
 function captureOptions() {
+  captureFps = prefs.fps > 30 ? 60 : 30;
   return {
-    video: { ...captureConstraints(prefs.quality, prefs.fps) },
-    audio: prefs.audio ? { suppressLocalAudioPlayback: false } : false,
+    video: { height: { max: CAPTURE_MAX_H }, frameRate: { ideal: prefs.fps, max: captureFps } },
+    audio: prefs.audio && caps.screenAudio ? { suppressLocalAudioPlayback: false } : false,
     systemAudio: prefs.audio ? 'include' : 'exclude',
     surfaceSwitching: 'include',
     selfBrowserSurface: 'exclude',
@@ -175,15 +228,37 @@ function captureOptions() {
   };
 }
 
-let captureCap = 0;   // altura maxima pedida na captura atual
 async function pickScreen() {
-  const stream = await navigator.mediaDevices.getDisplayMedia(captureOptions());
-  captureCap = qualityPreset(prefs.quality).maxH;
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia(captureOptions()); }
+  catch (err) {
+    // Navegadores mais antigos recusam alguma opcao: tenta o pedido mais simples.
+    if (err?.name !== 'TypeError' && err?.name !== 'OverconstrainedError' && err?.name !== 'NotSupportedError') throw err;
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+  }
   const v = stream.getVideoTracks()[0];
   try { v.contentHint = prefs.hint; } catch {}
-  v.addEventListener('ended', () => { if (output?.screen === stream) stopAll(); });
+  v.addEventListener('ended', () => { if (output?.screen === stream) onCaptureEnded(); });
   return stream;
 }
+// A captura parou (botao "Parar de compartilhar" do navegador, janela fechada...):
+// a transmissao NAO fecha. Quem assiste ve "pausada"; quem transmite escolhe de novo ou encerra.
+function onCaptureEnded() {
+  if (!output || !roomId) return;
+  output.setPaused(true);
+  $('captureEnded').classList.remove('hidden');
+  toast('⏸ O compartilhamento da tela parou. Quem assiste vê “Transmissão pausada”.');
+}
+$('btnRepick').onclick = async () => {
+  try {
+    const s = await pickScreen();
+    output.useScreen(s);
+    output.setPaused(false);
+    $('captureEnded').classList.add('hidden');
+    await applyQuality();
+  } catch { toast('Escolha cancelada: a transmissão continua pausada.'); }
+};
+$('btnEndNow').onclick = () => { $('captureEnded').classList.add('hidden'); stopAll(); };
 
 $('btnScreen').onclick = async () => {
   if (!checkPolicy()) return;
@@ -212,7 +287,7 @@ $('fileImages').onchange = async () => {
 
 function checkPolicy() {
   if (policy === 'relay' && !supportsWebCodecs()) {
-    show($('homeMsg'), 'err', 'Este navegador não suporta o modo Máxima segurança. Use Chrome ou Edge atualizados.');
+    show($('homeMsg'), 'err', `O ${caps.name} desta versão não suporta o modo Máxima segurança. Atualize o navegador ou use Chrome, Edge, Brave, Firefox (130+) ou Safari (16.4+).`);
     return false;
   }
   return true;
@@ -273,7 +348,7 @@ let chimeCtx = null;
 function chime(up = true) {
   if (prefs.notify === false) return;
   try {
-    chimeCtx ||= new AudioContext();
+    chimeCtx ||= newAudioContext();
     const t = chimeCtx.currentTime, o = chimeCtx.createOscillator(), g = chimeCtx.createGain();
     o.type = 'sine';
     o.frequency.setValueAtTime(up ? 660 : 520, t);
@@ -354,17 +429,16 @@ document.addEventListener('keydown', (e) => {
 // Aplica qualidade/quadros em todos os caminhos (captura, WebRTC, retransmissao).
 async function applyQuality() {
   if (!output) return;
-  // 1) A captura so e ajustada para SUBIR a resolucao (ou mudar quadros/s):
-  //    reduzir a captura de tela durante a transmissao nao e confiavel em todos
-  //    os navegadores. Para reduzir, quem encolhe e o envio (passo 2), calculado
-  //    sobre a altura REAL dos quadros — assim nunca encolhe duas vezes.
-  const want = qualityPreset(prefs.quality).maxH;
-  if (output.screenTrack) {
-    captureCap = Math.max(captureCap, want);
-    try { await output.screenTrack.applyConstraints(captureConstraints(Object.keys(QUALITY).find((k) => QUALITY[k].maxH === captureCap) || prefs.quality, prefs.fps)); } catch {}
-    await waitFrameHeight();
+  // 1) A captura so muda para AUMENTAR os quadros/s (30 -> 60), com verificacao:
+  //    se a imagem parar, o ajuste e desfeito. Resolucao e reducoes ficam com o envio.
+  const track = output.screenTrack;
+  if (track && prefs.fps > captureFps) {
+    const ok = await safeApply(track, { height: { max: CAPTURE_MAX_H }, frameRate: { ideal: prefs.fps, max: 60 } },
+      { height: { max: CAPTURE_MAX_H }, frameRate: { ideal: captureFps, max: captureFps } });
+    if (ok) captureFps = 60;
+    else toast(`Esta tela não aceitou ${prefs.fps} quadros/s agora; seguindo com ${captureFps}.`);
   }
-  // 2) ajusta o envio de cada pessoa
+  // 2) ajusta o envio de cada pessoa (resolucao, banda, quadros/s)
   for (const v of viewers.values()) await setSenderQuality(v.pc);
   relay?.setQuality(relayQuality());
 }
@@ -374,10 +448,19 @@ function sourceHeight() {
   if (output?.source === 'screen' && !output.paused) return $('preview').videoHeight || output.sourceHeight;
   return output?.sourceHeight || 0;
 }
-// Espera a pre-visualizacao refletir a nova captura (ate 1,5 s).
-async function waitFrameHeight() {
-  const target = output.screenTrack?.getSettings().height;
-  for (let i = 0; i < 15 && target && $('preview').videoHeight !== target; i++) await new Promise((r) => setTimeout(r, 100));
+// Aplica restricoes na captura e confere que a imagem continua chegando;
+// se parar (ou falhar), volta ao que estava.
+const framesNow = () => { try { return $('preview').getVideoPlaybackQuality?.().totalVideoFrames ?? Math.round($('preview').currentTime * 1000); } catch { return 0; } };
+async function safeApply(track, constraints, previous) {
+  const start = framesNow();
+  try { await track.applyConstraints(constraints); } catch { return false; }
+  for (let i = 0; i < 25; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (track.readyState !== 'live') return false;
+    if (framesNow() > start + 1) return true;
+  }
+  try { await track.applyConstraints(previous); } catch {}
+  return false;
 }
 function relayQuality() {
   const q = qualityPreset(prefs.quality);
@@ -461,8 +544,14 @@ async function onViewerSignal(viewerId, envelope) {
     catch (err) { console.warn('[telalink] ajuste de banda recusado; seguindo sem ele', err); await v.pc.setRemoteDescription(p.sdp); }
   }
   else if (p.kind === 'ice' && v.pc) await v.pc.addIceCandidate(p.candidate).catch(() => {});
-  else if (p.kind === 'transport') v.transport = p.mode;
+  else if (p.kind === 'transport') {
+    v.transport = p.mode;
+    // Saiu da retransmissao para a conexao direta (ex.: voltou a Seguranca padrao).
+    if (p.mode !== 'retransmissao' && relayViewers.delete(viewerId) && relayViewers.size === 0) { relay?.stop(); relay = null; }
+  }
   else if (p.kind === 'bye-p2p') { v.pc?.close(); v.pc = null; }
+  else if (p.kind === 'want-p2p' && policy === 'auto' && !v.pc) await createOffer(viewerId);
+  else if (p.kind === 'relay-caps') { v.relayCodecs = Array.isArray(p.codecs) ? p.codecs.slice(0, 10) : null; updateRelayCodecs(); }
 }
 
 // Codecs que este PC codifica por hardware (menos processador = imagem mais estavel).
@@ -510,6 +599,12 @@ async function createOffer(viewerId) {
   await sendSig(viewerId, { kind: 'sdp', sdp: pc.localDescription.toJSON() });
 }
 
+// Codecs da retransmissao que TODOS os espectadores conseguem decodificar.
+function updateRelayCodecs() {
+  const lists = [...relayViewers].map((id) => viewers.get(id)?.relayCodecs).filter(Boolean);
+  relay?.setAllowedCodecs(lists.length ? lists.reduce((a, b) => a.filter((c) => b.includes(c))) : null);
+}
+
 function onRelayWant(viewerId) {
   const v = viewers.get(viewerId);
   if (v) { v.transport = 'retransmissao'; v.pc?.close(); v.pc = null; }
@@ -517,11 +612,13 @@ function onRelayWant(viewerId) {
   if (!relay) {
     relay = new RelaySender({
       stream: output.stream, mediaKey: keys.media, ws, previewVideo: $('preview'),
+      audioContext: output.ctx,            // Firefox/Safari: som da retransmissao via AudioWorklet
       ...relayQuality(),
       onError: (e) => console.warn('[telalink relay]', e),
     });
   }
   relay.start();
+  updateRelayCodecs();
   relay.requestKeyframe();
 }
 
@@ -649,6 +746,10 @@ function stopAll() {
   for (const id of [...viewers.keys()]) closeViewer(id, true);
   relay?.stop(); relay = null;
   clearInterval(usageTimer); clearInterval(clockTimer);
+  if (pendingTunnel) {
+    fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tunnel: pendingTunnel }) }).catch(() => {});
+    pendingTunnel = null;
+  }
   document.title = 'TelaLink';
   output?.stop(); output = null;
   ws?.close();

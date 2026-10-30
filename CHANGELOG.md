@@ -1,5 +1,18 @@
 # Histórico de versões
 
+## 2.5.0 — 2026-10-30
+
+### Corrigido
+- **Salvar as configurações durante a transmissão não interrompe mais nada.** Escolher "Máxima (original)" ao vivo pedia ao navegador para recapturar a tela em resolução maior, o que congelava a imagem (e em alguns PCs encerrava a captura e a transmissão). Agora a tela é capturada já na resolução nativa e a qualidade é ajustada só no envio, na hora.
+- Mudanças na captura (ex.: 30 → 60 quadros/s) são conferidas e desfeitas sozinhas se a imagem parar.
+
+### Novo
+- As configurações valem **nos dois lados**: quem assiste é avisado da nova qualidade; ligar a **Máxima segurança** passa quem assiste para a retransmissão na hora, e voltar ao modo padrão retoma a conexão direta.
+- Trocar o tipo de link durante a transmissão fica para a próxima (não derruba quem assiste).
+- Se a captura da tela parar, a transmissão **não fecha**: quem assiste vê "pausada" e aparece "Escolher a tela de novo".
+- **Compatibilidade com Chrome, Edge, Brave, Opera, Firefox e Safari** (inclusive iPhone/iPad e Android para assistir): detecção de recursos, codec negociado entre todos que assistem, retransmissão e som no Firefox/Safari, "toque para ativar o som", tela cheia no iPhone, avisos do que cada navegador não faz. Ver `docs/NAVEGADORES.md`.
+- Workflow **navegadores**: testes reais em Firefox, WebKit, Edge, Chrome, Brave e no **Safari de verdade** (macOS), a cada envio e toda semana.
+
 ## 2.4.1 — 2026-10-29
 
 ### Novo

@@ -8,9 +8,10 @@
 | Unidade | `crypto`, `media`, `settings`, `turn`, `ws-lite`, `tunnel-manager`, `lab` | Funções isoladas, casos de borda, entradas maliciosas | Cada envio (CI) |
 | Integração | `server`, `acesso`, `relay`, `tunnel`, `main` | Servidor real em porta aleatória, WebSocket real, processo real | Cada envio (CI) |
 | Estático | `arquivos` | `.bat` (CRLF/ASCII/redirecionamentos), sintaxe, CSP, IDs do HTML | Cada envio (CI) |
-| E2E | `e2e`, `proxy-https`, `config-ui`, `controles`, `qualidade`, `experiencia` | Chromium real: 3 cliques, pausar, volume, qualidade, imagens, trocar fonte, trancar/remover, controles de quem assiste, direta, retransmissão, máxima segurança, chave ausente/adulterada, caminho https como na Cloudflare, cadastro de cada método TURN contra um servidor TURN de teste com autenticação real | Cada envio (CI, 3 sistemas) |
+| E2E | `e2e`, `proxy-https`, `config-ui`, `controles`, `qualidade`, `experiencia`, `ao-vivo` | Chromium real: 3 cliques, pausar, volume, qualidade, imagens, trocar fonte, trancar/remover, controles de quem assiste, direta, retransmissão, máxima segurança, chave ausente/adulterada, caminho https como na Cloudflare, cadastro de cada método TURN contra um servidor TURN de teste com autenticação real | Cada envio (CI, 3 sistemas) |
 | Segurança | `seguranca` | Ataques reais ao servidor: IP forjado, PIN, inundação, conexões, ping de vida, quadros aleatórios, cabeçalhos | Cada envio (CI) |
 | Instalação | `instalador` + workflow `instalador` | Contra servidor falso: instala e recusa arquivo adulterado. No workflow: downloads REAIS de nodejs.org e GitHub nos 3 sistemas | Cada envio e semanal |
+| Navegadores | `navegadores` + `safari-real.mjs` (workflow `navegadores`) | Firefox, WebKit, Edge, Chrome, Brave e Safari real: assistir (direta e retransmissão) e transmitir | Cada envio e semanal |
 | Rede | `lab/` | Transmissor e espectadores em redes isoladas com NAT/firewall reais | Envio na `main`, PR e semanal |
 | Manual | Este documento | Rede de celular real, outro PC | Antes de cada versão |
 

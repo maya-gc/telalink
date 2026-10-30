@@ -1,0 +1,79 @@
+# =============================================================================
+#  Compatibilidade com os navegadores: Firefox, Safari (WebKit e o Safari de
+#  verdade no macOS), Edge, Chrome e Brave. Quem assiste em cada um (conexao
+#  direta e retransmissao) e quem transmite (quando o navegador permite
+#  automatizar a escolha de tela). Roda a cada envio e toda semana, para pegar
+#  mudancas nas versoes novas dos navegadores.
+# =============================================================================
+name: navegadores
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 10 * * 2'   # tercas, 07:41 em Brasilia
+
+permissions:
+  contents: read
+
+concurrency:
+  group: navegadores-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  navegadores:
+    name: ${{ matrix.os }} (${{ matrix.browsers }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browsers: firefox,webkit,chrome
+            install: chromium firefox webkit
+          - os: windows-latest
+            browsers: msedge,chrome,firefox,brave
+            install: chromium firefox
+          - os: macos-latest
+            browsers: webkit,chrome
+            install: chromium webkit
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      TUNNEL: "0"
+      NO_OPEN: "1"
+      TELALINK_BROWSERS: ${{ matrix.browsers }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Instalar Playwright e navegadores
+        shell: bash
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps ${{ matrix.install }}
+
+      - name: Instalar o Brave (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install brave -y --no-progress
+          $p = 'C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe'
+          if (-not (Test-Path $p)) { throw 'Brave nao instalado' }
+          "BRAVE_PATH=$p" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Testes nos navegadores (${{ matrix.browsers }})
+        shell: bash
+        run: node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=relatorio-navegadores.xml test/navegadores.test.js
+
+      - name: Safari de verdade (safaridriver)
+        if: runner.os == 'macOS'
+        run: |
+          sudo safaridriver --enable
+          node test/safari-real.mjs
+
+      - name: Publicar falhas como anotacoes
+        if: failure()
+        run: node scripts/ci-report.js relatorio-navegadores.xml

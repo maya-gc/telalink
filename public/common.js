@@ -43,6 +43,8 @@ export async function describeTransport(pc) {
     stats.forEach((s) => {
       if (s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
     });
+    // Firefox marca o par em uso com "selected"; os demais, com "nominated".
+    if (!pair) stats.forEach((s) => { if (s.type === 'candidate-pair' && s.selected) pair = s; });
     if (!pair) stats.forEach((s) => { if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') pair = s; });
     if (!pair) return 'direta';
     const local = stats.get(pair.localCandidateId);
@@ -75,3 +77,58 @@ export const TRANSPORT_LABEL = {
 
 export const supportsWebCodecs = () =>
   typeof globalThis.VideoEncoder === 'function' && typeof globalThis.VideoDecoder === 'function';
+
+// ----------------------------------------------------------------- navegadores
+// Nome do navegador (so para mensagens; o funcionamento usa deteccao de recurso).
+export function browserName(ua = globalThis.navigator?.userAgent || '', nav = globalThis.navigator || {}) {
+  if (nav.brave) return 'Brave';
+  if (/Edg(e|A|iOS)?\//.test(ua)) return 'Edge';
+  if (/OPR\/|Opera/.test(ua)) return 'Opera';
+  if (/SamsungBrowser\//.test(ua)) return 'Samsung Internet';
+  if (/Firefox\/|FxiOS\//.test(ua)) return 'Firefox';
+  if (/Chrome\/|CriOS\/|Chromium\//.test(ua)) return 'Chrome';
+  if (/Safari\//.test(ua)) return 'Safari';
+  return 'navegador';
+}
+
+// O que este navegador consegue fazer.
+export function detectCaps(g = globalThis) {
+  const nav = g.navigator || {};
+  const ua = nav.userAgent || '';
+  const name = browserName(ua, nav);
+  const chromium = /Chrome\/|Chromium\//.test(ua) && !/Firefox\//.test(ua);
+  const mobile = /Android|iPhone|iPad|iPod|Mobile/.test(ua) || (/Macintosh/.test(ua) && (nav.maxTouchPoints || 0) > 1);
+  return {
+    name, chromium, mobile,
+    screenShare: typeof nav.mediaDevices?.getDisplayMedia === 'function' && !mobile,
+    // So os navegadores Chromium (Chrome, Edge, Brave, Opera) capturam o SOM da tela/aba.
+    screenAudio: chromium && !mobile,
+    webrtc: typeof g.RTCPeerConnection === 'function',
+    relayDecode: typeof g.VideoDecoder === 'function',
+    relayAudio: typeof g.AudioDecoder === 'function',
+    relayEncode: typeof g.VideoEncoder === 'function',
+  };
+}
+export const caps = detectCaps();
+
+// AudioContext (Safari antigo usa o nome com prefixo).
+export function newAudioContext(opts) {
+  const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+  if (!AC) return null;
+  try { return new AC(opts); } catch { try { return new AC(); } catch { return null; } }
+}
+
+// Tela cheia em qualquer navegador (iPhone so permite no proprio <video>).
+export function enterFullscreen(el, video) {
+  if (el.requestFullscreen) return el.requestFullscreen().catch(() => pseudo(el));
+  if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+  if (video?.webkitEnterFullscreen && !video.classList.contains('hidden')) return video.webkitEnterFullscreen();
+  return pseudo(el);
+}
+function pseudo(el) { el.classList.toggle('pseudo-full'); }
+export function exitFullscreen(el) {
+  if (document.fullscreenElement) return document.exitFullscreen?.();
+  if (document.webkitFullscreenElement) return document.webkitExitFullscreen?.();
+  el?.classList.remove('pseudo-full');
+}
+export const isFullscreen = (el) => !!(document.fullscreenElement || document.webkitFullscreenElement || el?.classList.contains('pseudo-full'));
