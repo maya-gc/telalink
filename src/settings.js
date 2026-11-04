@@ -30,7 +30,7 @@ export const DEFAULTS = Object.freeze({
   },
   capGB: 800,                       // trava de consumo mensal estimado de TURN (null = sem trava)
   tunnel: 'auto',                   // link externo: auto | cloudflare | ssh | off
-  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true },
+  prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true, priority: 'desempenho', maxDirect: 2, extraAudio: '', extraVolume: 100 },
   usage: { month: '', bytes: 0 },
 });
 
@@ -115,6 +115,14 @@ export function applyUpdate(current, input, { protectFn = protect } = {}) {
     if (p.fps !== undefined) { if (![15, 30, 60].includes(p.fps)) throw new Error('quadros por segundo invalidos'); out.fps = p.fps; }
     if (p.hint !== undefined) { if (!['motion', 'detail'].includes(p.hint)) throw new Error('tipo de conteudo invalido'); out.hint = p.hint; }
     if (p.audio !== undefined) { if (typeof p.audio !== 'boolean') throw new Error('audio invalido'); out.audio = p.audio; }
+    // Som somado: '' (nada), 'mic' (microfone padrao) ou 'dev:<id do dispositivo>'.
+    if (p.extraAudio !== undefined) {
+      if (typeof p.extraAudio !== 'string' || !/^(|mic|dev:[\w\-+/=.:]{1,256})$/.test(p.extraAudio)) throw new Error('fonte de som invalida');
+      out.extraAudio = p.extraAudio;
+    }
+    if (p.extraVolume !== undefined) { if (!(Number.isInteger(p.extraVolume) && p.extraVolume >= 0 && p.extraVolume <= 200)) throw new Error('volume do som somado deve ser de 0 a 200'); out.extraVolume = p.extraVolume; }
+    if (p.priority !== undefined) { if (!['desempenho', 'qualidade'].includes(p.priority)) throw new Error('prioridade invalida'); out.priority = p.priority; }
+    if (p.maxDirect !== undefined) { if (![0, 1, 2, 3, 5].includes(p.maxDirect)) throw new Error('limite de conexoes diretas invalido'); out.maxDirect = p.maxDirect; }
     if (p.notify !== undefined) { if (typeof p.notify !== 'boolean') throw new Error('aviso sonoro invalido'); out.notify = p.notify; }
     if (p.bitrate !== undefined) { if (!BITRATES.includes(p.bitrate)) throw new Error('limite de banda invalido'); out.bitrate = p.bitrate; }
     if (p.volume !== undefined) { if (!(Number.isInteger(p.volume) && p.volume >= 0 && p.volume <= 200)) throw new Error('volume deve ser de 0 a 200'); out.volume = p.volume; }

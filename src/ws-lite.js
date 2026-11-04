@@ -38,11 +38,35 @@ export function parseFrame(buf, maxPayload = MAX_PAYLOAD) {
   }
   if (buf.length < offset + len) return null;
   let payload = buf.subarray(offset, offset + len);
-  if (masked) {
-    payload = Buffer.from(payload);
-    for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
-  }
+  if (masked) payload = unmask(payload, mask);
   return { fin, opcode, payload, total: offset + len };
+}
+
+// Tamanho total do proximo frame (cabecalho + dados), ou 0 se o cabecalho ainda
+// nao chegou inteiro. Permite juntar os pedacos UMA vez so, quando o frame completa.
+export function frameLength(buf) {
+  if (buf.length < 2) return 0;
+  const masked = (buf[1] & 0x80) !== 0;
+  let len = buf[1] & 0x7f, offset = 2;
+  if (len === 126) { if (buf.length < 4) return 0; len = buf.readUInt16BE(2); offset = 4; }
+  else if (len === 127) { if (buf.length < 10) return 0; len = Number(buf.readBigUInt64BE(2)); offset = 10; }
+  return offset + (masked ? 4 : 0) + len;
+}
+
+// Remove a mascara do cliente de 4 em 4 bytes (palavras de 32 bits), numa copia
+// alinhada; o resto (0-3 bytes) um a um.
+export function unmask(payload, mask) {
+  const len = payload.length;
+  const out = Buffer.allocUnsafeSlow(len);         // ArrayBuffer proprio, alinhado
+  payload.copy(out);
+  const words = len >>> 2;
+  if (words) {
+    const w = new Uint32Array(out.buffer, out.byteOffset, words);
+    const m = mask.readUInt32LE(0);
+    for (let i = 0; i < words; i++) w[i] ^= m;
+  }
+  for (let i = words << 2; i < len; i++) out[i] ^= mask[i & 3];
+  return out;
 }
 
 // Monta um frame servidor->cliente (sem mascara, FIN=1).
@@ -67,7 +91,7 @@ class WSConn extends EventEmitter {
     this.socket = socket;
     this.readyState = 1; // OPEN
     this.maxPayload = MAX_PAYLOAD;
-    this._buf = Buffer.alloc(0);
+    this._chunks = []; this._len = 0; this._need = 0;   // pedacos recebidos ainda nao lidos
     this._frag = null; // { opcode, parts: [], size }
     this.lastSeen = Date.now();          // ultimo dado recebido (para o "ping" de vida)
     this.msgRate = null;                 // { perSec, burst } limita mensagens de texto
@@ -88,15 +112,28 @@ class WSConn extends EventEmitter {
   // Bytes aguardando envio para este cliente (internet lenta = fila cresce).
   get bufferedAmount() { return this.socket.writableLength; }
 
+  // Pedacos chegam da rede em tamanhos variados. Em vez de juntar tudo a cada
+  // pedaco (um quadro-chave de 4 MB em pedacos de 64 KB seriam ~60 copias
+  // crescentes), so junta quando o frame inteiro ja chegou.
   _onData(chunk) {
     this.lastSeen = Date.now();
-    this._buf = Buffer.concat([this._buf, chunk]);
-    if (this._buf.length > this.maxPayload + 14) { this.close(); return; }
+    this._chunks.push(chunk); this._len += chunk.length;
+    if (this._len > this.maxPayload + 14 + 1024 * 1024) { this.close(); return; }
+    if (this._need && this._len < this._need) return;
+    let buf = this._chunks.length === 1 ? this._chunks[0] : Buffer.concat(this._chunks, this._len);
+    this._chunks = []; this._len = 0; this._need = 0;
     while (true) {
-      const frame = parseFrame(this._buf, this.maxPayload);
-      if (!frame) break;
+      const frame = parseFrame(buf, this.maxPayload);
+      if (!frame) {
+        if (buf.length) {
+          this._chunks = [buf]; this._len = buf.length;
+          this._need = frameLength(buf);
+          if (this._need > this.maxPayload + 14) { this.close(); return; }
+        }
+        break;
+      }
       if (frame.error) { this.close(); return; }
-      this._buf = this._buf.subarray(frame.total);
+      buf = buf.subarray(frame.total);
       const { opcode, fin, payload } = frame;
       if (opcode === 0x8) { this.close(); return; }                   // close
       if (opcode === 0x9) { this._write(payload, 0xA); continue; }    // ping -> pong
@@ -145,6 +182,8 @@ class WSConn extends EventEmitter {
   send(text) { this._write(Buffer.from(String(text), 'utf8'), 0x1); }
   ping() { this._write(Buffer.alloc(0), 0x9); }
   sendBinary(buf) { this._write(Buffer.isBuffer(buf) ? buf : Buffer.from(buf), 0x2); }
+  // Frame ja montado (encodeFrame): o mesmo Buffer vai para varios clientes sem copia.
+  sendFrame(frame) { if (this.readyState === 1) try { this.socket.write(frame); } catch {} }
 
   close() {
     if (this.readyState === 3) return;

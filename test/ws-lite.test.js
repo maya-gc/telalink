@@ -148,3 +148,54 @@ test('mensagens fragmentadas (texto e binario) sao remontadas; fragmento solto d
   b.write(frag('solto', 0x0, true));    // continuacao sem inicio
   await b.fechou;
 });
+
+test('mascara removida em palavras de 32 bits = byte a byte (todos os tamanhos e alinhamentos)', async () => {
+  const { unmask } = await import('../src/ws-lite.js');
+  const { randomBytes } = await import('node:crypto');
+  for (let len = 0; len < 70; len++) {
+    for (const off of [0, 1, 3]) {
+      const big = randomBytes(len + off); const payload = big.subarray(off); const mask = randomBytes(4);
+      const expected = Buffer.from(payload.map((b, i) => b ^ mask[i & 3]));
+      assert.deepEqual(unmask(payload, mask), expected, `len=${len} off=${off}`);
+    }
+  }
+});
+
+test('frame grande chegando em pedacos pequenos (como pela internet) chega inteiro', { timeout: 20_000 }, async (t) => {
+  const net = await import('node:net');
+  const { randomBytes } = await import('node:crypto');
+  const { startServer } = await import('../src/server.js');
+  const app = await startServer({ port: 0, log: () => {} });
+  t.after(() => app.close());
+  const got = new Promise((res) => app.wss.once('connection', (c) => c.on('binary', res)));
+  const sock = net.connect(app.port, '127.0.0.1');
+  await new Promise((r) => sock.once('connect', r));
+  sock.write(`GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+  await new Promise((r) => sock.once('data', r));
+  // Um so frame binario de 200 KB (abaixo do limite de 256 KB), mascarado, em ~850 pedacos de 240 bytes.
+  const data = randomBytes(200_000); const mask = randomBytes(4);
+  const head = Buffer.alloc(14); head[0] = 0x82; head[1] = 0x80 | 127; head.writeBigUInt64BE(BigInt(data.length), 2); mask.copy(head, 10);
+  const frame = Buffer.concat([head, Buffer.from(data.map((b, i) => b ^ mask[i & 3]))]);
+  for (let i = 0; i < frame.length; i += 240) { sock.write(frame.subarray(i, i + 240)); if (i % 24000 === 0) await new Promise((r) => setImmediate(r)); }
+  const received = await got;
+  assert.equal(received.length, data.length);
+  assert.ok(received.equals(data), 'conteudo identico');
+  sock.destroy();
+});
+
+test('frame acima do limite e recusado logo no cabecalho (sem esperar nem juntar os dados)', { timeout: 20_000 }, async (t) => {
+  const net = await import('node:net');
+  const { randomBytes } = await import('node:crypto');
+  const { startServer } = await import('../src/server.js');
+  const app = await startServer({ port: 0, log: () => {} });
+  t.after(() => app.close());
+  const sock = net.connect(app.port, '127.0.0.1');
+  await new Promise((r) => sock.once('connect', r));
+  sock.write(`GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${randomBytes(16).toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
+  await new Promise((r) => sock.once('data', r));
+  const head = Buffer.alloc(14); head[0] = 0x82; head[1] = 0x80 | 127; head.writeBigUInt64BE(BigInt(10_000_000), 2);
+  sock.on('error', () => {});
+  const closed = new Promise((r) => sock.once('close', r));
+  sock.write(head); sock.write(randomBytes(1000));
+  await closed;
+});

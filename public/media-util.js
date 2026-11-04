@@ -194,10 +194,18 @@ export function withBitrateHints(sdp, { startKbps, maxKbps }) {
 // Ordem de preferencia dos codecs WebRTC: o que o PC codifica por HARDWARE
 // primeiro (menos processador = menos queda de resolucao); depois VP9 (melhor
 // imagem por bit), H.264 e VP8. `hw` = conjunto de tipos com hardware.
-export function orderCodecs(codecs, hw = new Set()) {
+// priority: 'desempenho' (menos processador: H.264 > VP8 > VP9 sem placa de video)
+//           'qualidade'  (mais nitidez por Mbps: VP9 > H.264 > VP8).
+// Medido (1080p, 1 pessoa, sem placa de video): H.264 0,41 nucleo; VP9 0,51; VP8 0,56.
+export const SOFTWARE_ORDER = {
+  desempenho: { 'video/h264': 1, 'video/vp8': 2, 'video/vp9': 3, 'video/av1': 4 },
+  qualidade: { 'video/vp9': 1, 'video/h264': 2, 'video/vp8': 3, 'video/av1': 4 },
+};
+export function orderCodecs(codecs, hw = new Set(), priority = 'desempenho') {
+  const order = SOFTWARE_ORDER[priority] || SOFTWARE_ORDER.desempenho;
   const rank = (c) => {
     const t = c.mimeType.toLowerCase();
-    const base = { 'video/vp9': 1, 'video/h264': 2, 'video/vp8': 3, 'video/av1': 4 }[t];
+    const base = order[t];
     if (base === undefined) return 100;               // rtx, red, ulpfec ficam no fim
     const highProfile = t === 'video/h264' && /profile-level-id=(64|4d)/i.test(c.sdpFmtpLine || '') ? -0.5 : 0;
     return (hw.has(t) ? 0 : 10) + base + highProfile;

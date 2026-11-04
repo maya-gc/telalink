@@ -1,5 +1,21 @@
 # Histórico de versões
 
+## 2.6.0 — 2026-11-04
+
+### Desempenho (medições em `docs/DESEMPENHO.md`)
+- **Codificação compartilhada**: a partir de N pessoas (padrão 2, ajustável), quem entra recebe pela retransmissão, que codifica uma vez para todos. Com 5 pessoas: memória 1783 → 892 MB.
+- **Prioridade "Leve" (padrão)**: placa de vídeo primeiro; sem ela, o codec mais leve (H.264, ~20% menos processador que o VP9). "Mais nitidez" mantém o VP9.
+- **Captura só da resolução necessária** (ex.: 1080p num monitor 4K); subir a qualidade ao vivo continua funcionando, com verificação.
+- Pré-visualização e detector de tela preta pausam com o painel em segundo plano.
+- Servidor: sem cópias repetidas ao juntar pacotes, pacote montado uma vez para todos, máscara do WebSocket em blocos de 32 bits (coletas de lixo 2,6 → 0,6/s com 20 pessoas).
+- Painel mostra se cada pessoa recebe vídeo codificado pela **placa de vídeo** ou pelo **processador**.
+- Teste de desempenho do servidor (`desempenho.test.js`) e ferramentas de medição em `bench/`.
+
+### Som (`docs/SOM-POR-PROGRAMA.md`)
+- **Só o som do programa compartilhado** (Chrome/Edge 141+): ao escolher uma janela, vai só o som dela; sons do próprio painel ficam de fora.
+- **Somar microfone ou outro dispositivo** (cabo virtual, mixagem estéreo, placa de captura), com volume próprio e botão para ligar/desligar ao vivo — também no Firefox e no Safari.
+- Avisos claros quando a janela escolhida vem sem som.
+
 ## 2.5.0 — 2026-10-30
 
 ### Corrigido

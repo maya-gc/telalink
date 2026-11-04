@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { isElevated, lowerPriority } from '../src/sistema.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SKIP = new Set(['.git', 'node_modules', '.runtime', 'coverage', 'lab-results', 'test']);
+// test/ e bench/ sao ferramentas de desenvolvimento (nao vao para quem usa).
+const SKIP = new Set(['.git', 'node_modules', '.runtime', 'coverage', 'lab-results', 'test', 'bench']);
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     if (SKIP.has(name)) continue;

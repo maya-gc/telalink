@@ -71,6 +71,7 @@
       <div class="toolbar" role="toolbar" aria-label="Controles da transmissão">
         <button id="btnPause" class="ghost">⏸ Pausar</button>
         <button id="btnMute" class="ghost">🔊 Som ligado</button>
+        <button id="btnExtra" class="ghost hidden" title="Liga/desliga o microfone ou dispositivo somado">🎙 Microfone ligado</button>
         <label class="vol" title="Volume do som enviado">
           <span aria-hidden="true">🔉</span>
           <input id="volume" type="range" min="0" max="200" step="5" value="100" aria-label="Volume do som enviado" />
@@ -137,9 +138,25 @@
     </fieldset>
 
     <fieldset>
+      <legend>Desempenho</legend>
+      <div class="choices compact">
+        <label class="choice"><input type="radio" name="priority" value="desempenho" /> <span class="title">Leve</span> <span class="badge rec">Recomendado</span><div class="desc">Usa menos o processador — bom para jogos e PCs mais simples.</div></label>
+        <label class="choice"><input type="radio" name="priority" value="qualidade" /> <span class="title">Mais nitidez por Mbps</span><div class="desc">Imagem um pouco melhor na mesma internet, mas pesa mais no processador (se não houver placa de vídeo que codifique).</div></label>
+      </div>
+      <label class="field"><span>Pessoas com conexão direta própria</span>
+        <select id="optMaxDirect"><option value="1">1</option><option value="2">2 (padrão)</option><option value="3">3</option><option value="5">5</option><option value="0">Sem limite</option></select></label>
+      <p class="hint">Cada conexão direta codifica o vídeo de novo. A partir desse número, quem entra recebe pela retransmissão, que usa <b>uma codificação só para todos</b>: o processador não cresce com o número de pessoas.</p>
+    </fieldset>
+
+    <fieldset>
       <legend>Áudio</legend>
       <label class="opt"><input type="checkbox" id="optAudio" /> Incluir o som do computador</label>
       <label class="opt"><input type="checkbox" id="optNotify" /> Tocar um aviso curto quando alguém entrar ou sair</label>
+      <label class="field"><span>Somar também o som de</span>
+        <select id="optExtra"><option value="">Nada</option><option value="mic">Meu microfone (padrão do sistema)</option></select></label>
+      <button type="button" id="btnListDevices" class="ghost small">🔎 Mostrar outros dispositivos de som (cabo virtual, Mixagem estéreo, placa de captura…)</button>
+      <label class="field"><span>Volume do som somado: <b id="optExtraVolumeTxt">100%</b></span><input id="optExtraVolume" type="range" min="0" max="200" step="5" /></label>
+      <p class="hint">🎮 <b>Só o som de um programa</b> (como no Discord): no Chrome ou Edge 141+, escolha a <b>Janela</b> do programa e deixe marcado “Compartilhar o áudio”. “Aba” leva só o som da aba; “Tela inteira”, o som de todo o computador.</p>
       <label class="field"><span>Volume inicial: <b id="optVolumeTxt">100%</b></span><input id="optVolume" type="range" min="0" max="200" step="5" /></label>
       <small class="hint">💡 Para o som ir junto, escolha “Aba” ou “Tela inteira” e marque “Compartilhar áudio” na janela do navegador.</small>
     </fieldset>

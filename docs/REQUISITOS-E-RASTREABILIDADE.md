@@ -36,6 +36,10 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-27 | Salvar configurações durante a transmissão sem interromper; valem para quem transmite e quem assiste | `ao-vivo.test.js` |
 | RF-28 | Captura interrompida não fecha a transmissão (pausa + escolher de novo) | `ao-vivo.test.js` |
 | RF-29 | Funciona em Chrome, Edge, Brave, Firefox e Safari (assistir e transmitir) | `navegadores.test.js` + `safari-real.mjs` (workflow `navegadores`) |
+| RF-30 | Som só da janela escolhida (Chrome/Edge 141+), sem os sons do próprio painel | `som.test.js` |
+| RF-31 | Somar microfone ou dispositivo de som, com volume e liga/desliga ao vivo | `som.test.js` |
+| RD-07 | Processador não cresce além de N codificações (codificação compartilhada); codec leve por padrão | `bench/navegador.mjs`, `media.test.js` › codecs |
+| RD-08 | Servidor: limites de processador, memória e coleta de lixo com 10 pessoas a 8 Mbps/60 qps | `desempenho.test.js` |
 | RF-17 | Link externo sem instalar nada (SSH do sistema), com escolha automática do provedor | `tunnel-manager.test.js`, `tunnel.test.js` › SSH, `main.test.js` › SSH |
 
 ## Segurança

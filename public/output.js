@@ -75,6 +75,29 @@ export class Output {
     if (this.gain) this.gain.gain.setTargetAtTime(gainFor(this), this.ctx.currentTime, 0.02);
   }
 
+  // ---------------- som "somado" (microfone ou outro dispositivo), com volume proprio.
+  // Passa pelo volume/mudo/pausa gerais tambem.
+  setExtraAudio(stream, volume = 100) {
+    if (this.extra) {
+      try { this.extra.src.disconnect(); this.extra.gain.disconnect(); } catch {}
+      this.extra.stream.getTracks().forEach((t) => t.stop());
+    }
+    this.extra = null;
+    if (!stream || !this.ctx) { this.onChange(); return; }
+    const src = this.ctx.createMediaStreamSource(stream);
+    const gain = this.ctx.createGain();
+    src.connect(gain).connect(this.gain);
+    this.extra = { stream, src, gain, volume, muted: false };
+    this._applyExtra();
+    this.onChange();
+  }
+  setExtraVolume(v) { if (this.extra) { this.extra.volume = Math.max(0, Math.min(200, Math.round(v))); this._applyExtra(); } }
+  setExtraMuted(m) { if (this.extra) { this.extra.muted = !!m; this._applyExtra(); this.onChange(); } }
+  _applyExtra() {
+    const e = this.extra;
+    if (e) e.gain.gain.setTargetAtTime(e.muted ? 0 : e.volume / 100, this.ctx.currentTime, 0.02);
+  }
+
   _connectAudio(stream) {
     try { this.srcNode?.disconnect(); } catch {}
     this.srcNode = null;
@@ -158,6 +181,7 @@ export class Output {
   _stopImages() { this.imageSrc?.stop(); this.imageSrc = null; this.images = []; }
 
   stop() {
+    this.setExtraAudio(null);
     this._stopScreen();
     this._stopImages();
     this.pauseSrc?.stop(); this.pauseSrc = null;

@@ -19,7 +19,7 @@ import { randomUUID, randomInt, randomBytes, createHmac, timingSafeEqual } from 
 import { extname, join, normalize, sep, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
-import { attachWebSocket, MAX_PAYLOAD_HARD } from './ws-lite.js';
+import { attachWebSocket, MAX_PAYLOAD_HARD, encodeFrame } from './ws-lite.js';
 import { DEFAULT_STUN } from './turn.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -67,7 +67,7 @@ const SECURITY_HEADERS = {
   'cache-control': 'no-store',
   'content-security-policy': CSP,
   'cross-origin-opener-policy': 'same-origin',
-  'permissions-policy': 'camera=(), microphone=(), geolocation=(), usb=(), serial=(), hid=(), payment=(), display-capture=(self), fullscreen=(self), picture-in-picture=(self), clipboard-write=(self)',
+  'permissions-policy': 'camera=(), microphone=(self), geolocation=(), usb=(), serial=(), hid=(), payment=(), display-capture=(self), fullscreen=(self), picture-in-picture=(self), clipboard-write=(self)',
   'cross-origin-resource-policy': 'same-origin',
   'x-permitted-cross-domain-policies': 'none',
   'origin-agent-cluster': '?1',
@@ -189,7 +189,7 @@ export function createServer({
         turnError: iceProvider.lastError || null,
         tunnel: settings.data.tunnel,
       } : { defaultMode: 'auto', provider: 'none', capGB: null, usageGB: 0, overCap: false, turnError: null, tunnel: 'auto' };
-      const prefs = settings ? settings.data.prefs : { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true };
+      const prefs = settings ? settings.data.prefs : { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true, priority: 'desempenho', maxDirect: 2, extraAudio: '', extraVolume: 100 };
       return json(res, 200, { tunnel: getTunnelInfo(), defaultMode: conexao.defaultMode, conexao, prefs });
     }
     if (pathname === '/api/settings') {
@@ -290,6 +290,7 @@ export function createServer({
     const isVideo = buf[0] === 1;
     const isKey = (buf[1] & 1) === 1;
     let wantKey = false;
+    let frame = null;                    // montado uma vez e compartilhado por todos
     for (const v of room.relay) {
       const q = v.bufferedAmount;
       if (q > RELAY_HARD_QUEUE) { v.needKey = true; wantKey = true; continue; }
@@ -297,7 +298,7 @@ export function createServer({
         if (isKey) { if (q > RELAY_SOFT_QUEUE * 2) { wantKey = true; continue; } v.needKey = false; }
         else if (v.needKey || q > RELAY_SOFT_QUEUE) { v.needKey = true; wantKey = true; continue; }
       } else if (q > RELAY_SOFT_QUEUE) continue; // audio: descarta se a fila estiver cheia
-      v.sendBinary(buf);
+      v.sendFrame(frame ||= encodeFrame(buf, 0x2));
     }
     if (wantKey) requestKeyframe(room);
   }

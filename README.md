@@ -76,6 +76,11 @@ O modo **Máxima segurança** usa sempre a retransmissão cifrada (ver abaixo).
 
 Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md), [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) e [`SECURITY.md`](SECURITY.md).
 
+## Desempenho e som
+
+- **Leve por padrão**: usa a placa de vídeo quando possível; sem ela, o codec mais leve. A partir da 3ª pessoa, todos compartilham uma única codificação. Medições e outras opções: [`docs/DESEMPENHO.md`](docs/DESEMPENHO.md).
+- **Som de cada programa**: escolha a **Janela** do programa (Chrome/Edge 141+) e vai só o som dele; dá para **somar o microfone** ou outro dispositivo. Detalhes: [`docs/SOM-POR-PROGRAMA.md`](docs/SOM-POR-PROGRAMA.md).
+
 ## Navegadores
 
 Assistir: **qualquer navegador moderno** (Chrome, Edge, Brave, Opera, Firefox, Safari), inclusive no celular. Transmitir: computador com Chrome, Edge, Brave, Opera, Firefox ou Safari — o **som** do computador só vai junto no Chrome, Edge, Brave e Opera (limitação dos outros navegadores; o painel avisa). Tabela completa: [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md).
@@ -117,6 +122,8 @@ O **GitHub Actions** roda tudo a cada envio, em Windows, macOS e Linux, e o **la
 | [`docs/PLANO-DE-TESTES.md`](docs/PLANO-DE-TESTES.md) | Estratégia, níveis, laboratório e teste manual |
 | [`docs/PROCESSO-DE-QUALIDADE.md`](docs/PROCESSO-DE-QUALIDADE.md) | Práticas alinhadas a CMMI e ISO, e o que exige auditoria |
 | [`docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`](docs/RISCOS-LEGAIS-E-CONTINUIDADE.md) | Leis, termos dos serviços de link, bloqueios possíveis e plano B |
+| [`docs/DESEMPENHO.md`](docs/DESEMPENHO.md) | Onde o TelaLink gasta processador/memória, o que foi otimizado e outras opções |
+| [`docs/SOM-POR-PROGRAMA.md`](docs/SOM-POR-PROGRAMA.md) | Som só do programa compartilhado, microfone e dispositivos |
 | [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md) | O que funciona em cada navegador e como é testado |
 | [`docs/ANTI-CHEAT-E-ANTIVIRUS.md`](docs/ANTI-CHEAT-E-ANTIVIRUS.md) | Por que anti-cheats e antivírus não têm o que detectar, e cuidados de uso |
 | [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) | Auditoria da versão 2.4: achados, correções e testes |

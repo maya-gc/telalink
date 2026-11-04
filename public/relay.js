@@ -39,8 +39,15 @@ export async function decodableCodecs() {
   return out;
 }
 
+// Ordem por prioridade. Placa de video sempre primeiro; sem ela, "desempenho"
+// prefere o H.264 por software (o mais leve) e "qualidade" prefere o VP8/VP9.
+export function relayCandidates(priority = 'desempenho') {
+  const [hwAvc, hwVp9, vp8, swAvc, swVp9] = RELAY_CODECS;
+  return priority === 'qualidade' ? [hwAvc, hwVp9, vp8, swVp9, swAvc] : [hwAvc, hwVp9, swAvc, vp8, swVp9];
+}
+
 // allowed: lista de codecs que TODOS os espectadores decodificam (null = sem restricao).
-export async function pickRelayCodec({ width = 1920, height = 1080, bitrate = 8_000_000, framerate = 30, allowed = null } = {}, candidates = RELAY_CODECS) {
+export async function pickRelayCodec({ width = 1920, height = 1080, bitrate = 8_000_000, framerate = 30, allowed = null, priority = 'desempenho' } = {}, candidates = relayCandidates(priority)) {
   const list = allowed ? candidates.filter((c) => allowed.includes(c.codec)) : candidates;
   if (typeof globalThis.VideoEncoder?.isConfigSupported !== 'function') return null;
   for (const c of list) {
@@ -61,8 +68,8 @@ export function fitSize(w, h, maxW = MAX_W, maxH = MAX_H) {
 
 // ----------------------------------------------------------------- HOST
 export class RelaySender {
-  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 8_000_000, maxH = MAX_H, fps = 30, autoRes = false, codec = null, audioContext = null, onError = () => {} }) {
-    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, autoRes, onError, audioContext });
+  constructor({ stream, mediaKey, ws, previewVideo, bitrate = 8_000_000, maxH = MAX_H, fps = 30, autoRes = false, codec = null, audioContext = null, priority = 'desempenho', onError = () => {} }) {
+    Object.assign(this, { stream, mediaKey, ws, previewVideo, bitrate, maxH, fps, autoRes, onError, audioContext, priority });
     this.allowed = null;                   // codecs que todos os espectadores decodificam
     this.targetBitrate = bitrate;          // teto escolhido; this.bitrate = banda atual (adaptativa)
     this.codec = codec;                    // definido em start() se nao vier pronto
@@ -79,7 +86,7 @@ export class RelaySender {
     if (this.running) return;
     this.running = true;
     this.forceKey = true;
-    const ready = this.codec ? Promise.resolve(this.codec) : pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed });
+    const ready = this.codec ? Promise.resolve(this.codec) : pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed, priority: this.priority });
     ready.then((c) => {
       this.codec ||= c;
       if (!this.codec) return this.onError(new Error('nenhum codec de video disponivel para a retransmissao neste navegador'));
@@ -111,11 +118,20 @@ export class RelaySender {
 
   requestKeyframe() { this.forceKey = true; }
 
+  // Prioridade mudou (Leve x Mais nitidez): escolhe o codec de novo, sem parar.
+  async setPriority(priority) {
+    if (!priority || priority === this.priority) return;
+    this.priority = priority;
+    if (!this.codec) return;
+    const c = await pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed, priority });
+    if (c && c !== this.codec) { this.codec = c; this.forceKey = true; }
+  }
+
   // Um espectador nao decodifica o codec atual (ex.: Safari): escolhe outro que todos aceitem.
   async setAllowedCodecs(list) {
     this.allowed = list && list.length ? list : null;
     if (!this.codec || !this.allowed || this.allowed.includes(this.codec.codec)) return;
-    const c = await pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed });
+    const c = await pickRelayCodec({ bitrate: this.targetBitrate, framerate: this.fps, allowed: this.allowed, priority: this.priority });
     if (c) { this.codec = c; this.forceKey = true; }        // proximo quadro reconfigura o codificador
     else this.onError(new Error('os espectadores nao tem um codec de video em comum com este navegador'));
   }

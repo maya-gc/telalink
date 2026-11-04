@@ -14,7 +14,7 @@ import { drawQr } from './qr.js';
 // ------------------------------------------------------------ estado
 let tunnel = { status: 'off', url: null, error: null };
 let conexao = null;
-let prefs = { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true };
+let prefs = { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true, priority: 'desempenho', maxDirect: 2, extraAudio: '', extraVolume: 100 };
 let policy = 'auto';
 let ws, roomId, pin, sessionKey, keys;
 let iceServers = [];
@@ -138,7 +138,12 @@ function openSettings() {
   $('optFps').value = String(prefs.fps);
   $('optBitrate').value = String(prefs.bitrate || 0);
   document.querySelector(`input[name=hint][value=${prefs.hint}]`).checked = true;
+  document.querySelector(`input[name=priority][value=${prefs.priority || 'desempenho'}]`).checked = true;
+  $('optMaxDirect').value = String(prefs.maxDirect ?? 2);
   $('optAudio').checked = prefs.audio;
+  ensureExtraOption(prefs.extraAudio);
+  $('optExtra').value = prefs.extraAudio || '';
+  $('optExtraVolume').value = prefs.extraVolume ?? 100; $('optExtraVolumeTxt').textContent = `${prefs.extraVolume ?? 100}%`;
   $('optNotify').checked = prefs.notify !== false;
   $('optVolume').value = prefs.volume; $('optVolumeTxt').textContent = `${prefs.volume}%`;
   document.querySelector(`input[name=policy][value=${policy}]`).checked = true;
@@ -160,6 +165,9 @@ $('btnSaveSettings').onclick = async () => {
     audio: $('optAudio').checked, volume: Number($('optVolume').value),
     bitrate: Number($('optBitrate').value),
     notify: $('optNotify').checked,
+    priority: document.querySelector('input[name=priority]:checked').value,
+    extraAudio: $('optExtra').value, extraVolume: Number($('optExtraVolume').value),
+    maxDirect: Number($('optMaxDirect').value),
   };
   const nextPolicy = document.querySelector('input[name=policy]:checked').value;
   const nextTunnel = $('optTunnel').value;
@@ -184,6 +192,60 @@ $('btnSaveSettings').onclick = async () => {
   await saving;
 };
 
+// ------------------------------------------------------------ som
+// Sem som na captura: explica o que fazer conforme o que foi escolhido.
+function warnNoAudio(stream) {
+  if (!prefs.audio || stream.getAudioTracks().length) return show($('shareMsg'), '', '');
+  if (prefs.extraAudio) return;                                  // vai o som somado
+  const surface = stream.getVideoTracks()[0]?.getSettings().displaySurface;
+  const msg = !caps.screenAudio
+    ? `O ${caps.name} não captura o som da tela. Para levar som, em ⚙ Configurações → Áudio escolha “Somar também” (microfone ou um dispositivo de som).`
+    : surface === 'window'
+      ? 'Esta janela veio sem som. Para levar só o som deste programa, use Chrome ou Edge 141+ e deixe marcado “Compartilhar o áudio” ao escolher a janela (🔄 Trocar). Ou escolha “Tela inteira” para levar o som de todo o computador.'
+      : 'Sem som: na janela de escolha, deixe marcado “Compartilhar áudio” (em “Aba” ou “Tela inteira”).';
+  show($('shareMsg'), 'warn', msg);
+}
+// Microfone ou dispositivo somado ao som da transmissao.
+async function applyExtraAudio() {
+  if (!output) return;
+  const want = prefs.extraAudio || '';
+  if (want === (output.extraKey || '') && (!want || output.extra)) { output.setExtraVolume(prefs.extraVolume ?? 100); return renderLive(); }
+  output.extraKey = want;
+  if (!want) { output.setExtraAudio(null); return renderLive(); }
+  try {
+    const isMic = want === 'mic';
+    // Microfone: com reducao de eco/ruido. Dispositivo (cabo virtual, mixagem): som puro.
+    const audio = isMic ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      : { deviceId: { exact: want.slice(4) }, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 };
+    const s = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    output.setExtraAudio(s, prefs.extraVolume ?? 100);
+    if (roomId) toast(isMic ? '🎙 Microfone somado à transmissão.' : '🔊 Dispositivo de som somado à transmissão.');
+  } catch (err) {
+    output.extraKey = '';
+    show($('shareMsg'), 'warn', `Não foi possível usar ${want === 'mic' ? 'o microfone' : 'o dispositivo de som'}: ${err?.name === 'NotAllowedError' ? 'permissão negada no navegador' : 'dispositivo indisponível'}.`);
+  }
+  renderLive();
+}
+function ensureExtraOption(value) {
+  if (!value?.startsWith('dev:') || [...$('optExtra').options].some((o) => o.value === value)) return;
+  const o = document.createElement('option'); o.value = value; o.textContent = 'Dispositivo escolhido antes'; $('optExtra').appendChild(o);
+}
+$('btnListDevices').onclick = async () => {
+  try {
+    // Os nomes dos dispositivos so aparecem depois de uma permissao de microfone.
+    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+    tmp?.getTracks().forEach((t) => t.stop());
+    const sel = $('optExtra'), cur = sel.value;
+    for (const o of [...sel.options]) if (o.value.startsWith('dev:')) o.remove();
+    devs.forEach((d, i) => { const o = document.createElement('option'); o.value = `dev:${d.deviceId}`; o.textContent = d.label || `Dispositivo de som ${i + 1}`; sel.appendChild(o); });
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : sel.value;
+    $('settingsMsg').textContent = devs.length ? `${devs.length} dispositivo(s) encontrado(s).` : 'Nenhum outro dispositivo encontrado.';
+  } catch { $('settingsMsg').textContent = 'Não foi possível listar os dispositivos de som.'; }
+};
+$('optExtraVolume').oninput = () => { $('optExtraVolumeTxt').textContent = `${$('optExtraVolume').value}%`; };
+$('btnExtra').onclick = () => output?.setExtraMuted(!output.extra?.muted);
+
 // Aplica as configuracoes na transmissao em andamento, nos DOIS lados:
 // quem transmite (captura/envio) e quem assiste (recebe aviso; muda de caminho
 // se a seguranca mudou). Nada e reiniciado.
@@ -192,6 +254,7 @@ async function applyLive(before, beforePolicy) {
   try { if (output.screenTrack) output.screenTrack.contentHint = prefs.hint; } catch {}
   await applyQuality();
   if (prefs.volume !== before.volume) output.setVolume(prefs.volume);
+  if (prefs.extraAudio !== before.extraAudio || prefs.extraVolume !== before.extraVolume) await applyExtraAudio();
   if (prefs.audio !== before.audio) {
     if (!prefs.audio) output.setMuted(true);
     else if (output.hasSourceAudio) output.setMuted(false);
@@ -214,14 +277,22 @@ async function applyLive(before, beforePolicy) {
 // alguns computadores.
 // Altura NATIVA da tela (tamanho x escala do Windows), ate 4K: pedir mais que
 // isso faz alguns capturadores ampliarem a imagem a toa (gasta processador).
-const CAPTURE_MAX_H = Math.min(2160, Math.max(720, Math.round((globalThis.screen?.height || 1080) * (globalThis.devicePixelRatio || 1))));
+const NATIVE_H = Math.min(2160, Math.max(720, Math.round((globalThis.screen?.height || 1080) * (globalThis.devicePixelRatio || 1))));
+// Desempenho: captura SO a resolucao que a qualidade escolhida usa (ex.: monitor
+// 4K com qualidade 1080p captura em 1080p: 4x menos pixels para processar).
+let captureH = NATIVE_H;
 let captureFps = 30;                     // teto de quadros/s pedido na captura atual
+const wantedH = () => Math.min(NATIVE_H, qualityPreset(prefs.quality).maxH);
 function captureOptions() {
   captureFps = prefs.fps > 30 ? 60 : 30;
+  captureH = wantedH();
   return {
-    video: { height: { max: CAPTURE_MAX_H }, frameRate: { ideal: prefs.fps, max: captureFps } },
-    audio: prefs.audio && caps.screenAudio ? { suppressLocalAudioPlayback: false } : false,
+    video: { height: { max: captureH }, frameRate: { ideal: prefs.fps, max: captureFps } },
+    // restrictOwnAudio: tira da captura os sons do proprio TelaLink (ex.: o aviso de entrada).
+    audio: prefs.audio && caps.screenAudio ? { suppressLocalAudioPlayback: false, restrictOwnAudio: true } : false,
     systemAudio: prefs.audio ? 'include' : 'exclude',
+    // Chrome/Edge 141+: ao escolher uma JANELA, oferece o som SO daquele programa.
+    windowAudio: prefs.audio ? 'window' : 'exclude',
     surfaceSwitching: 'include',
     selfBrowserSurface: 'exclude',
     monitorTypeSurfaces: 'include',
@@ -267,9 +338,7 @@ $('btnScreen').onclick = async () => {
   try { stream = await pickScreen(); }
   catch { return show($('homeMsg'), 'err', 'Captura cancelada ou não permitida pelo navegador.'); }
   output.useScreen(stream);
-  if (prefs.audio && !stream.getAudioTracks().length) {
-    show($('shareMsg'), 'warn', 'Sem som: na janela de escolha, use “Aba” ou “Tela inteira” e marque “Compartilhar áudio”.');
-  }
+  warnNoAudio(stream);
   await goLive();
 };
 
@@ -328,6 +397,7 @@ async function goLive() {
   clockTimer = setInterval(renderClock, 1000);
   // 3o clique ja foi o da janela de escolha: o convite vai sozinho para a area de transferencia.
   copyInvite(true);
+  applyExtraAudio();                     // microfone/dispositivo somado, se escolhido
 }
 
 // ------------------------------------------------------------ relogio, titulo, avisos
@@ -360,6 +430,15 @@ function chime(up = true) {
     o.start(t); o.stop(t + 0.3);
   } catch {}
 }
+// Painel em segundo plano (ex.: jogando): pausa a pre-visualizacao e o detector
+// de tela preta. A transmissao continua (no Chrome/Edge/Brave ela le a propria
+// trilha de video, nao a pre-visualizacao).
+document.addEventListener('visibilitychange', () => {
+  const v = $('preview');
+  if (!v?.srcObject || !caps.chromium) return;
+  if (document.hidden) v.pause(); else v.play().catch(() => {});
+});
+
 // Fechar a aba sem querer encerraria a transmissao: o navegador pergunta antes.
 window.addEventListener('beforeunload', (e) => { if (output && roomId) { e.preventDefault(); e.returnValue = ''; } });
 
@@ -400,6 +479,12 @@ function renderLive() {
   $('btnLock').textContent = locked ? '🔒 Sala trancada' : '🔓 Sala aberta';
   $('btnLock').setAttribute('aria-pressed', String(locked));
   $('btnLock').classList.toggle('active', locked);
+  $('btnExtra').classList.toggle('hidden', !output.extra);
+  if (output.extra) {
+    const mic = output.extraKey === 'mic';
+    $('btnExtra').textContent = `${mic ? '🎙 Microfone' : '🔈 Som somado'} ${output.extra.muted ? 'desligado' : 'ligado'}`;
+    $('btnExtra').classList.toggle('active', output.extra.muted);
+  }
   const img = output.source === 'images';
   $('imgControls').classList.toggle('hidden', !img);
   if (img) $('imgPos').textContent = `${output.imageIndex + 1} de ${output.images.length}`;
@@ -413,7 +498,7 @@ $('btnLock').onclick = () => ws.json({ type: 'lock', locked: !locked });
 $('btnSwitch').onclick = () => $('switchMenu').classList.toggle('hidden');
 $('swScreen').onclick = async () => {
   $('switchMenu').classList.add('hidden');
-  try { output.useScreen(await pickScreen()); applyQuality(); }
+  try { const s = await pickScreen(); output.useScreen(s); warnNoAudio(s); applyQuality(); }
   catch { show($('shareMsg'), 'warn', 'Troca cancelada: continua mostrando o mesmo conteúdo.'); }
 };
 $('swImages').onclick = () => { $('switchMenu').classList.add('hidden'); $('fileImages').dataset.mode = ''; $('fileImages').click(); };
@@ -432,15 +517,18 @@ async function applyQuality() {
   // 1) A captura so muda para AUMENTAR os quadros/s (30 -> 60), com verificacao:
   //    se a imagem parar, o ajuste e desfeito. Resolucao e reducoes ficam com o envio.
   const track = output.screenTrack;
-  if (track && prefs.fps > captureFps) {
-    const ok = await safeApply(track, { height: { max: CAPTURE_MAX_H }, frameRate: { ideal: prefs.fps, max: 60 } },
-      { height: { max: CAPTURE_MAX_H }, frameRate: { ideal: captureFps, max: captureFps } });
-    if (ok) captureFps = 60;
-    else toast(`Esta tela não aceitou ${prefs.fps} quadros/s agora; seguindo com ${captureFps}.`);
+  //    Subir a resolucao (ate a nativa) tambem passa por aqui, com a mesma verificacao.
+  const needH = Math.max(captureH, wantedH()), needFps = Math.max(captureFps, prefs.fps > 30 ? 60 : 30);
+  if (track && (needH > captureH || needFps > captureFps)) {
+    const ok = await safeApply(track, { height: { max: needH }, frameRate: { ideal: prefs.fps, max: needFps } },
+      { height: { max: captureH }, frameRate: { ideal: captureFps, max: captureFps } });
+    if (ok) { captureH = needH; captureFps = needFps; }
+    else toast(`A tela não aceitou ${needH > captureH ? `${needH}p` : `${prefs.fps} quadros/s`} agora. Para isso, use 🔄 Trocar e escolha a tela de novo.`);
   }
   // 2) ajusta o envio de cada pessoa (resolucao, banda, quadros/s)
   for (const v of viewers.values()) await setSenderQuality(v.pc);
   relay?.setQuality(relayQuality());
+  relay?.setPriority?.(prefs.priority);
 }
 // Altura real dos quadros da tela (o <video> de pre-visualizacao mostra os
 // quadros de verdade; getSettings() as vezes informa o valor pedido, nao o real).
@@ -524,8 +612,13 @@ async function onViewerJoined(viewerId) {
   toast(`👋 Alguém entrou na transmissão (${viewers.size + 1} ${viewers.size ? 'pessoas' : 'pessoa'}).`);
   chime(true);
   viewers.set(viewerId, { channel: new SecureChannel(keys.sig, `${roomId}|${viewerId}`), pc: null, transport: 'conectando', turnReported: 0, joinedAt: Date.now() });
-  await sendSig(viewerId, { kind: 'hello', policy });
-  if (policy === 'auto') await createOffer(viewerId);
+  // Acima do limite de conexoes diretas, a pessoa recebe pela retransmissao,
+  // que usa UMA codificacao para todos (o processador nao cresce por pessoa).
+  const direct = [...viewers.values()].filter((v) => v.pc).length;
+  const shared = policy === 'auto' && prefs.maxDirect > 0 && direct >= prefs.maxDirect;
+  viewers.get(viewerId).shared = shared;
+  await sendSig(viewerId, { kind: 'hello', policy: shared ? 'relay' : policy });
+  if (policy === 'auto' && !shared) await createOffer(viewerId);
 }
 
 async function onViewerSignal(viewerId, envelope) {
@@ -573,7 +666,7 @@ function hwCodecs() {
 async function preferCodecs(pc) {
   const caps = globalThis.RTCRtpSender?.getCapabilities?.('video');
   if (!caps) return;
-  const order = orderCodecs(caps.codecs, await hwCodecs());
+  const order = orderCodecs(caps.codecs, await hwCodecs(), prefs.priority);
   for (const t of pc.getTransceivers()) {
     if (t.sender.track?.kind === 'video' && t.setCodecPreferences) try { t.setCodecPreferences(order); } catch {}
   }
@@ -613,6 +706,7 @@ function onRelayWant(viewerId) {
     relay = new RelaySender({
       stream: output.stream, mediaKey: keys.media, ws, previewVideo: $('preview'),
       audioContext: output.ctx,            // Firefox/Safari: som da retransmissao via AudioWorklet
+      priority: prefs.priority,
       ...relayQuality(),
       onError: (e) => console.warn('[telalink relay]', e),
     });
@@ -663,7 +757,7 @@ function renderViewers() {
     const li = document.createElement('li');
     const name = document.createElement('span'); name.textContent = `Pessoa ${i}`;
     const right = document.createElement('span'); right.className = 'row';
-    const how = document.createElement('span'); how.className = 'stat'; how.textContent = (TRANSPORT_LABEL[v.transport] || v.transport) + (v.detached ? ' (sem contato com o servidor)' : '');
+    const how = document.createElement('span'); how.className = 'stat'; how.textContent = (TRANSPORT_LABEL[v.transport] || v.transport) + (v.detached ? ' (sem contato com o servidor)' : '') + (v.shared && v.transport === 'retransmissao' ? ' · codificação compartilhada' : '');
     const kick = document.createElement('button'); kick.className = 'ghost small'; kick.textContent = 'Remover';
     kick.dataset.viewer = id;
     kick.onclick = () => { kicking.add(id); if (v.detached) { closeViewer(id); renderViewers(); } else ws.json({ type: 'kick', viewerId: id }); };
@@ -691,12 +785,15 @@ async function measureSending() {
           const bps = v.lastOut ? ((bytes - v.lastOut.bytes) * 8 * 1000) / Math.max(1, now - v.lastOut.t) : 0;
           v.lastOut = { bytes, t: now };
           const codec = st.get(r.codecId)?.mimeType?.split('/')[1];
-          q = { height: r.frameHeight, width: r.frameWidth, fps: r.framesPerSecond, bps, codec, limit: r.qualityLimitationReason };
+          // powerEfficientEncoder: o navegador diz se a codificacao e pela placa de video.
+          q = { height: r.frameHeight, width: r.frameWidth, fps: r.framesPerSecond, bps, codec, limit: r.qualityLimitationReason,
+            hw: typeof r.powerEfficientEncoder === 'boolean' ? r.powerEfficientEncoder : null };
         });
       } catch {}
     }
     v.quality = q;
-    v.qtext = q ? [qualityText(q), q.codec, LIMIT_TXT[q.limit]].filter(Boolean).join(' · ') : '';
+    const enc = q?.hw === true ? 'placa de vídeo' : q?.hw === false ? 'processador' : null;
+    v.qtext = q ? [qualityText(q), q.codec && (enc ? `${q.codec} (${enc})` : q.codec), LIMIT_TXT[q.limit]].filter(Boolean).join(' · ') : '';
     const el = document.querySelector(`#viewerList [data-q="${id}"]`);
     if (el) el.textContent = v.qtext;
     out.push({ id, transport: v.transport, ...(q || {}) });
@@ -725,6 +822,7 @@ function watchBlackScreen() {
   const timer = setInterval(() => {
     if (!output) return clearInterval(timer);
     const video = $('preview');
+    if (document.hidden) return;                       // painel escondido: nao gasta nada
     if (output.source !== 'screen' || output.paused || video.readyState < 2) { det.count = 0; $('blackWarning').classList.add('hidden'); return; }
     ctx.drawImage(video, 0, 0, 64, 36);
     const change = det.push(ctx.getImageData(0, 0, 64, 36).data);

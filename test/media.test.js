@@ -132,13 +132,14 @@ test('SDP: banda inicial e maxima em todos os codecs de video (e so neles)', () 
   assert.equal(withBitrateHints(out, { startKbps: 4000, maxKbps: 8000 }), out, 'aplicar duas vezes nao duplica');
 });
 
-test('codecs: hardware primeiro; sem hardware, VP9 > H.264 > VP8; auxiliares no fim', () => {
+test('codecs: hardware primeiro; sem hardware, "leve" prefere H.264 e "nitidez" prefere VP9; auxiliares no fim', () => {
   const c = (mimeType, sdpFmtpLine = '') => ({ mimeType, sdpFmtpLine });
   const list = [c('video/VP8'), c('video/rtx'), c('video/H264', 'profile-level-id=42e01f'), c('video/H264', 'profile-level-id=640c1f'), c('video/VP9'), c('video/AV1')];
   const names = (l) => l.map((x) => `${x.mimeType.split('/')[1]}${/640c/.test(x.sdpFmtpLine) ? '-high' : ''}`);
-  assert.deepEqual(names(orderCodecs(list)), ['VP9', 'H264-high', 'H264', 'VP8', 'AV1', 'rtx']);
-  assert.deepEqual(names(orderCodecs(list, new Set(['video/h264']))), ['H264-high', 'H264', 'VP9', 'VP8', 'AV1', 'rtx']);
-  assert.deepEqual(names(orderCodecs(list, new Set(['video/av1', 'video/vp9']))).slice(0, 2), ['VP9', 'AV1']);
+  assert.deepEqual(names(orderCodecs(list)), ['H264-high', 'H264', 'VP8', 'VP9', 'AV1', 'rtx'], 'padrao: o mais leve no processador');
+  assert.deepEqual(names(orderCodecs(list, new Set(), 'qualidade')), ['VP9', 'H264-high', 'H264', 'VP8', 'AV1', 'rtx']);
+  assert.deepEqual(names(orderCodecs(list, new Set(['video/vp9']))).slice(0, 2), ['VP9', 'H264-high'], 'placa de video sempre primeiro');
+  assert.deepEqual(names(orderCodecs(list, new Set(['video/av1', 'video/vp9']), 'qualidade')).slice(0, 2), ['VP9', 'AV1']);
 });
 
 test('retransmissao: banda adaptativa (reduz rapido, sobe devagar) e resolucao conforme a banda', () => {
