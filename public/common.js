@@ -40,10 +40,18 @@ export function openSocket({ onJson, onBinary, onClose }) {
   return ws;
 }
 
+// getStats com tempo limite: o Safari 27 pode deixar getStats sem resposta
+// enquanto a conexao direta negocia; sem isso, checagens e medicoes travavam.
+const NO_STATS = new Map();
+export function getStats(conn, ms = 1500) {
+  if (!conn) return Promise.resolve(NO_STATS);
+  return Promise.race([conn.getStats().catch(() => NO_STATS), new Promise((r) => setTimeout(() => r(NO_STATS), ms))]);
+}
+
 // Qual caminho a conexao WebRTC esta usando: 'direta' ou 'turn'.
 export async function describeTransport(pc) {
   try {
-    const stats = await pc.getStats();
+    const stats = await getStats(pc);
     let pair = null;
     stats.forEach((s) => {
       if (s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
@@ -61,7 +69,7 @@ export async function describeTransport(pc) {
 // Bytes enviados por conexoes que passam por TURN (para a trava de consumo).
 export async function turnBytesSent(pc) {
   try {
-    const stats = await pc.getStats();
+    const stats = await getStats(pc);
     let total = 0;
     stats.forEach((s) => {
       if (s.type !== 'candidate-pair' || !s.bytesSent) return;

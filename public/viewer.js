@@ -3,7 +3,7 @@
 //  Ordem de tentativa: conexao direta (WebRTC) -> TURN (se configurado) ->
 //  retransmissao pelo link. Tudo cifrado com a chave do "#" do link.
 // =============================================================================
-import { $, show, openSocket, describeTransport, TRANSPORT_LABEL, caps, newAudioContext, enterFullscreen, exitFullscreen, isFullscreen } from './common.js';
+import { $, show, getStats, openSocket, describeTransport, TRANSPORT_LABEL, caps, newAudioContext, enterFullscreen, exitFullscreen, isFullscreen } from './common.js';
 import { keyFromHash, deriveKeys, SecureChannel } from './crypto.js';
 import { RelayReceiver, decodableCodecs } from './relay.js';
 import { qualityText } from './media-util.js';
@@ -37,7 +37,9 @@ window.__telalink = {
   async framesReceived() {
     if (transport === 'retransmissao') return receiver?.stats.framesDecoded || 0;
     let n = 0;
-    try { (await pc?.getStats())?.forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') n = r.framesDecoded || 0; }); } catch {}
+    try { (await getStats(pc)).forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') n = r.framesDecoded || 0; }); } catch {}
+    // Sem estatisticas (Safari): conta pelo proprio elemento de video.
+    if (!n) { const v = $('remote'); try { n = (v.srcObject && v.getVideoPlaybackQuality?.().totalVideoFrames) || 0; } catch {} }
     return n;
   },
 };
@@ -46,7 +48,7 @@ const candType = (c) => (/ typ (\w+)/.exec(c?.candidate || '') || [])[1] || '?';
 // Resumo dos pares de candidatos testados (para entender por que nao conectou).
 async function snapshotPairs(conn) {
   try {
-    const st = await conn.getStats();
+    const st = await getStats(conn);
     const out = [];
     st.forEach((s) => {
       if (s.type !== 'candidate-pair') return;
@@ -80,7 +82,7 @@ async function measureQuality() {
   if (!pc) return null;
   let q = null;
   try {
-    (await pc.getStats()).forEach((r) => {
+    (await getStats(pc)).forEach((r) => {
       if (r.type !== 'inbound-rtp' || r.kind !== 'video') return;
       const bps = lastIn ? ((r.bytesReceived - lastIn.bytes) * 8 * 1000) / Math.max(1, r.timestamp - lastIn.t) : 0;
       lastIn = { bytes: r.bytesReceived, t: r.timestamp };
@@ -359,7 +361,7 @@ function watchNoResponse(start) {
     if (pc && Date.now() - start >= NO_RESPONSE_MS) {
       let sent = 0, answered = 0;
       try {
-        (await pc.getStats()).forEach((s) => {
+        (await getStats(pc)).forEach((s) => {
           if (s.type === 'candidate-pair') { sent += s.requestsSent || 0; answered += (s.responsesReceived || 0) + (s.requestsReceived || 0); }
         });
       } catch {}

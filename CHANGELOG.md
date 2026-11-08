@@ -5,6 +5,8 @@
 ### Corrigido
 - **"Transmitiu pelo Brave e eu não via nada."** A proteção contra *fingerprinting* do Brave bloqueia a conexão direta, e quem assistia ficava ~13 s em "Conectando…" sem explicação. Agora a imagem chega em **menos de 1 s** em todas as combinações testadas (Brave protegido transmitindo, assistindo ou nos dois lados), e a conexão direta continua sendo usada quando é possível.
 - Quem transmite pelo Brave é avisado no painel e recebe a dica para liberar a conexão direta.
+- macOS: quando o Chromium não publica endereços (mDNS), a conexão direta ainda é tentada pelos caminhos de quem assiste antes de trocar para a retransmissão.
+- Safari 27: as estatísticas da conexão podiam ficar sem resposta e travar as checagens; agora têm tempo limite.
 
 ### Novo
 - Tela de quem assiste mostra as **etapas** da conexão e, se algo travar, o que fazer e **📋 Copiar diagnóstico** (sem PIN, chave ou sala).
