@@ -579,7 +579,7 @@ function onVideoTrackChanged(track) {
 function connect() {
   ws = openSocket({
     onJson: async (m) => {
-      if (m.type === 'host-ready') iceServers = m.iceServers || [];
+      if (m.type === 'host-ready') { iceServers = m.iceServers || []; probeDirect(); }
       else if (m.type === 'viewer-joined') await onViewerJoined(m.viewerId);
       else if (m.type === 'signal' && m.from === 'viewer') await onViewerSignal(m.viewerId, m.data);
       else if (m.type === 'viewer-left') onViewerLeft(m.viewerId);
@@ -615,7 +615,7 @@ async function onViewerJoined(viewerId) {
   // Acima do limite de conexoes diretas, a pessoa recebe pela retransmissao,
   // que usa UMA codificacao para todos (o processador nao cresce por pessoa).
   const direct = [...viewers.values()].filter((v) => v.pc).length;
-  const shared = policy === 'auto' && prefs.maxDirect > 0 && direct >= prefs.maxDirect;
+  const shared = policy === 'auto' && ((prefs.maxDirect > 0 && direct >= prefs.maxDirect) || directBlocked === true);
   viewers.get(viewerId).shared = shared;
   await sendSig(viewerId, { kind: 'hello', policy: shared ? 'relay' : policy });
   if (policy === 'auto' && !shared) await createOffer(viewerId);
@@ -672,6 +672,33 @@ async function preferCodecs(pc) {
   }
 }
 
+// ------------------------------------------------------------ conexao direta possivel?
+// Alguns navegadores bloqueiam a conexao direta (ex.: Brave com protecao contra
+// fingerprinting = "Desativar UDP sem proxy"; VPNs/extensoes). Sem testar, quem
+// assiste esperava ~12 s sem explicacao ate a retransmissao. Agora: testa uma vez
+// e, se nao der, todos ja entram pela retransmissao.
+let directBlocked = null;               // null = ainda testando
+async function probeDirect() {
+  if (typeof RTCPeerConnection !== 'function') { directBlocked = true; return renderDirectNote(); }
+  const pc = new RTCPeerConnection({ iceServers });
+  let n = 0;
+  pc.onicecandidate = (e) => { if (e.candidate && e.candidate.candidate) n++; };
+  try {
+    pc.createDataChannel('teste');
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise((r) => { const t = setTimeout(r, 3000); pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); } }; });
+  } catch {}
+  pc.close();
+  directBlocked = n === 0;
+  renderDirectNote();
+}
+function renderDirectNote() {
+  if (!directBlocked) return show($('directNote'), '', '');
+  show($('directNote'), 'warn', `Seu navegador (${caps.name}) está bloqueando a conexão direta${caps.name === 'Brave' ? ' — no Brave, isso acontece com a proteção contra fingerprinting dos Escudos' : ''}. ` +
+    'Sem problema: quem assistir recebe pela retransmissão pelo link (um pouco mais de atraso). ' +
+    (caps.name === 'Brave' ? 'Para a conexão direta: clique no ícone do leão (Escudos) na barra de endereço deste painel e desative "Bloquear fingerprinting", ou use o Chrome/Edge.' : 'Para a conexão direta, desative a extensão/VPN que bloqueia o WebRTC ou use outro navegador.'));
+}
+
 async function createOffer(viewerId) {
   const v = viewers.get(viewerId);
   const pc = new RTCPeerConnection({ iceServers });
@@ -682,7 +709,12 @@ async function createOffer(viewerId) {
   }
   await preferCodecs(pc);
   await setSenderQuality(pc);
-  pc.onicecandidate = (e) => { if (e.candidate) sendSig(viewerId, { kind: 'ice', candidate: e.candidate.toJSON() }); };
+  let sentCandidates = 0;
+  pc.onicecandidate = (e) => { if (e.candidate) { sentCandidates++; sendSig(viewerId, { kind: 'ice', candidate: e.candidate.toJSON() }); } };
+  pc.onicegatheringstatechange = () => {
+    // Nenhum caminho deste lado: avisa quem assiste para trocar ja para a retransmissao.
+    if (pc.iceGatheringState === 'complete' && sentCandidates === 0) sendSig(viewerId, { kind: 'no-direct' }).catch(() => {});
+  };
   pc.onconnectionstatechange = async () => {
     if (pc.connectionState === 'connected') { v.transport = await describeTransport(pc); await setSenderQuality(pc); renderViewers(); }
     else if (pc.connectionState === 'failed') { pc.close(); if (v.pc === pc) v.pc = null; }
@@ -757,7 +789,10 @@ function renderViewers() {
     const li = document.createElement('li');
     const name = document.createElement('span'); name.textContent = `Pessoa ${i}`;
     const right = document.createElement('span'); right.className = 'row';
-    const how = document.createElement('span'); how.className = 'stat'; how.textContent = (TRANSPORT_LABEL[v.transport] || v.transport) + (v.detached ? ' (sem contato com o servidor)' : '') + (v.shared && v.transport === 'retransmissao' ? ' · codificação compartilhada' : '');
+    const secs = Math.round((Date.now() - v.joinedAt) / 1000);
+    const stuck = v.transport === 'conectando' && secs >= 15;
+    const how = document.createElement('span'); how.className = stuck ? 'stat warn-txt' : 'stat'; how.textContent = v.transport === 'conectando'
+      ? (stuck ? `⚠ conectando há ${secs} s — peça para a pessoa tocar em “Copiar diagnóstico” e te enviar` : `conectando… ${secs} s`) : (TRANSPORT_LABEL[v.transport] || v.transport) + (v.detached ? ' (sem contato com o servidor)' : '') + (v.shared && v.transport === 'retransmissao' ? ' · codificação compartilhada' : '');
     const kick = document.createElement('button'); kick.className = 'ghost small'; kick.textContent = 'Remover';
     kick.dataset.viewer = id;
     kick.onclick = () => { kicking.add(id); if (v.detached) { closeViewer(id); renderViewers(); } else ws.json({ type: 'kick', viewerId: id }); };
@@ -800,7 +835,11 @@ async function measureSending() {
   }
   return out;
 }
-setInterval(() => { if (viewers.size) measureSending(); }, 2000);
+setInterval(() => {
+  if (!viewers.size) return;
+  measureSending();
+  if ([...viewers.values()].some((v) => v.transport === 'conectando')) renderViewers();   // atualiza o tempo de espera
+}, 2000);
 
 // ------------------------------------------------------------ consumo TURN
 async function reportTurnUsage() {

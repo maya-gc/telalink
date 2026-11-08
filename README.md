@@ -83,7 +83,7 @@ Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md), [`docs/AUDIT
 
 ## Navegadores
 
-Assistir: **qualquer navegador moderno** (Chrome, Edge, Brave, Opera, Firefox, Safari), inclusive no celular. Transmitir: computador com Chrome, Edge, Brave, Opera, Firefox ou Safari — o **som** do computador só vai junto no Chrome, Edge, Brave e Opera (limitação dos outros navegadores; o painel avisa). Tabela completa: [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md).
+Assistir: **qualquer navegador moderno** (Chrome, Edge, Brave, Opera, Firefox, Safari), inclusive no celular. Transmitir: computador com Chrome, Edge, Brave, Opera, Firefox ou Safari — o **som** do computador só vai junto no Chrome, Edge, Brave e Opera (limitação dos outros navegadores; o painel avisa). No **celular**, um toque mostra/esconde os controles e dois toques põem em tela cheia. **Brave**: funciona sozinho pela retransmissão; para a conexão direta, desative "Bloquear fingerprinting" nos Shields. Tabela completa: [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md).
 
 ## Anti-cheat e antivírus (Vanguard, Easy Anti-Cheat, VAC, BattlEye, FACEIT)
 
@@ -105,7 +105,7 @@ Em ⚙ Configurações → **Opções avançadas de conexão** é possível esco
 ## Testes
 
 ```
-npm test                 # 250 testes: unidade, integração, segurança, E2E com navegador real
+npm test                 # 278 testes: unidade, integração, segurança, E2E com navegador real
 npm run test:coverage    # idem, com cobertura mínima obrigatória
 npm run lab              # laboratório de redes isoladas (Linux, root)
 ```
@@ -125,6 +125,7 @@ O **GitHub Actions** roda tudo a cada envio, em Windows, macOS e Linux, e o **la
 | [`docs/DESEMPENHO.md`](docs/DESEMPENHO.md) | Onde o TelaLink gasta processador/memória, o que foi otimizado e outras opções |
 | [`docs/SOM-POR-PROGRAMA.md`](docs/SOM-POR-PROGRAMA.md) | Som só do programa compartilhado, microfone e dispositivos |
 | [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md) | O que funciona em cada navegador e como é testado |
+| [`docs/ESTUDO-APLICATIVO-NATIVO.md`](docs/ESTUDO-APLICATIVO-NATIVO.md) | Estudo (CMMI DAR): aplicativo nativo em Rust/Go/C# × versão web, arquitetura e plano por fases |
 | [`docs/ANTI-CHEAT-E-ANTIVIRUS.md`](docs/ANTI-CHEAT-E-ANTIVIRUS.md) | Por que anti-cheats e antivírus não têm o que detectar, e cuidados de uso |
 | [`docs/AUDITORIA-DE-SEGURANCA.md`](docs/AUDITORIA-DE-SEGURANCA.md) | Auditoria da versão 2.4: achados, correções e testes |
 | [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Componentes de terceiros e licenças |

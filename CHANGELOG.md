@@ -1,5 +1,18 @@
 # Histórico de versões
 
+## 2.7.0 — 2026-11-08
+
+### Corrigido
+- **"Transmitiu pelo Brave e eu não via nada."** A proteção contra *fingerprinting* do Brave bloqueia a conexão direta, e quem assistia ficava ~13 s em "Conectando…" sem explicação. Agora a imagem chega em **menos de 1 s** em todas as combinações testadas (Brave protegido transmitindo, assistindo ou nos dois lados), e a conexão direta continua sendo usada quando é possível.
+- Quem transmite pelo Brave é avisado no painel e recebe a dica para liberar a conexão direta.
+
+### Novo
+- Tela de quem assiste mostra as **etapas** da conexão e, se algo travar, o que fazer e **📋 Copiar diagnóstico** (sem PIN, chave ou sala).
+- Painel destaca quem está há mais de 15 s conectando.
+- **Celular**: um toque mostra/esconde os controles, dois toques = tela cheia, botões grandes embaixo, área segura do iPhone, paisagem na tela cheia, tela do PIN maior.
+- Estudo `docs/ESTUDO-APLICATIVO-NATIVO.md` (CMMI DAR): Rust/Go/C#/Tauri/Electron × web; decisão de manter a web e plano por fases.
+- Testes `brave.test.js` (WebRTC restrito em navegador real) e `celular.test.js` (Pixel 7 e iPhone 13 com toque).
+
 ## 2.6.0 — 2026-11-04
 
 ### Desempenho (medições em `docs/DESEMPENHO.md`)

@@ -2,7 +2,8 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#000000" />
 <title>TelaLink — Assistir</title>
 <link rel="stylesheet" href="/style.css" />
 <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -20,6 +21,31 @@
     opacity: 0; transition: opacity .2s;
   }
   .stage:hover .bar, .bar.show { opacity: 1; }
+  .bar.hide-force { opacity: 0 !important; pointer-events: none; }
+  /* ---------- celular e tablet (toque) ---------- */
+  .stage { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  @media (pointer: coarse) {
+    .stage:hover .bar { opacity: 0; }                 /* no toque nao existe "passar o mouse" */
+    .stage:hover .bar.show, .bar.show { opacity: 1; }
+    .bar {
+      top: auto; bottom: 0; flex-direction: column; align-items: stretch; gap: 8px;
+      padding: 12px max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+      background: linear-gradient(transparent, #000c 35%); font-size: 14px;
+    }
+    .bar .controls { justify-content: space-around; flex-wrap: nowrap; }
+    .bar button { min-width: 48px; min-height: 48px; font-size: 20px; padding: 8px 12px; border-radius: 12px; }
+    .bar .lbl { display: none; }                      /* so os icones: cabem no celular */
+    .bar input[type=range] { display: none; }         /* volume pelos botoes do aparelho */
+    .stage-msg { top: max(16px, env(safe-area-inset-top)); font-size: 15px; }
+    .tap-hint { position: absolute; left: 50%; top: max(16px, env(safe-area-inset-top)); transform: translateX(-50%); z-index: 3;
+      background: #000a; color: #fff; padding: 8px 14px; border-radius: 20px; font-size: 13px; pointer-events: none; transition: opacity .4s; }
+  }
+  @media (pointer: coarse) and (max-width: 520px) {
+    .gate { margin: 8vh auto; }
+    .pinput { font-size: 32px !important; padding: 14px !important; }
+    .gate button#btnJoin { padding: 16px; font-size: 18px; }
+  }
+  .tap-hint.off { opacity: 0; }
   .bar button { padding: 6px 12px; background: #ffffff22; }
   .bar .controls { gap: 6px; }
   .bar input[type=range] { width: 110px; }
@@ -35,20 +61,23 @@
     <input class="pinput" id="pin" type="text" inputmode="numeric" maxlength="6" placeholder="------" autocomplete="off" />
     <button id="btnJoin">Entrar</button>
     <div id="gateMsg"></div>
+    <ol id="steps" class="steps hidden" aria-live="polite"></ol>
+    <button id="btnDiag" class="ghost small hidden" type="button">📋 Copiar diagnóstico (para enviar a quem transmite)</button>
   </div>
 
   <div class="stage" id="stage">
     <div class="bar" id="bar">
       <span><span class="lock">🔒</span> Criptografado de ponta a ponta · <span id="transportTxt">Conectando...</span><span id="qualityTxt" class="q"></span></span>
       <span class="row controls" role="toolbar" aria-label="Controles">
-        <button id="btnMute" title="Ligar/desligar som (M)">🔊</button>
+        <button id="btnMute" title="Ligar/desligar som (M)" aria-label="Som">🔊</button>
         <input id="volume" type="range" min="0" max="100" step="5" value="100" aria-label="Volume" />
-        <button id="btnFit" title="Ajuste da imagem (A)">⤢ Caber</button>
-        <button id="btnPip" class="hidden" title="Janela flutuante">⧉ Flutuante</button>
-        <button id="btnFull" title="Tela cheia (F)">⛶ Tela cheia</button>
+        <button id="btnFit" title="Ajuste da imagem (A)" aria-label="Ajuste da imagem">⤢<span class="lbl"> Caber</span></button>
+        <button id="btnPip" class="hidden" title="Janela flutuante" aria-label="Janela flutuante">⧉<span class="lbl"> Flutuante</span></button>
+        <button id="btnFull" title="Tela cheia (F)" aria-label="Tela cheia">⛶<span class="lbl"> Tela cheia</span></button>
       </span>
     </div>
     <div id="stageMsg" class="stage-msg hidden" role="status"></div>
+    <div id="tapHint" class="tap-hint off" aria-hidden="true">Toque na tela para mostrar ou esconder os controles</div>
     <video id="remote" autoplay playsinline></video>
     <canvas id="relayCanvas" class="hidden"></canvas>
   </div>

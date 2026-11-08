@@ -125,7 +125,9 @@ export function newAudioContext(opts) {
 
 // Tela cheia em qualquer navegador (iPhone so permite no proprio <video>).
 export function enterFullscreen(el, video) {
-  if (el.requestFullscreen) return el.requestFullscreen().catch(() => pseudo(el));
+  // No celular, tela cheia ja vira para paisagem quando o aparelho permite.
+  const landscape = () => globalThis.screen?.orientation?.lock?.('landscape').catch(() => {});
+  if (el.requestFullscreen) return el.requestFullscreen().then(landscape, () => pseudo(el));
   if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
   if (video?.webkitEnterFullscreen && !video.classList.contains('hidden')) return video.webkitEnterFullscreen();
   return pseudo(el);

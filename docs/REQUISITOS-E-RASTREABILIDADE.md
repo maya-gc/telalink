@@ -38,6 +38,9 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-29 | Funciona em Chrome, Edge, Brave, Firefox e Safari (assistir e transmitir) | `navegadores.test.js` + `safari-real.mjs` (workflow `navegadores`) |
 | RF-30 | Som só da janela escolhida (Chrome/Edge 141+), sem os sons do próprio painel | `som.test.js` |
 | RF-31 | Somar microfone ou dispositivo de som, com volume e liga/desliga ao vivo | `som.test.js` |
+| RF-32 | Brave/WebRTC restrito em qualquer lado: imagem em poucos segundos pela retransmissão, conexão direta mantida quando possível, aviso no painel | `brave.test.js` |
+| RF-33 | Quem assiste vê as etapas da conexão, o que fazer quando trava e pode copiar um diagnóstico sem segredos | `brave.test.js` |
+| RF-34 | Celular: um toque mostra/esconde os controles, dois toques = tela cheia, botões do tamanho do dedo, área segura do iPhone, paisagem na tela cheia | `celular.test.js` |
 | RD-07 | Processador não cresce além de N codificações (codificação compartilhada); codec leve por padrão | `bench/navegador.mjs`, `media.test.js` › codecs |
 | RD-08 | Servidor: limites de processador, memória e coleta de lixo com 10 pessoas a 8 Mbps/60 qps | `desempenho.test.js` |
 | RF-17 | Link externo sem instalar nada (SSH do sistema), com escolha automática do provedor | `tunnel-manager.test.js`, `tunnel.test.js` › SSH, `main.test.js` › SSH |

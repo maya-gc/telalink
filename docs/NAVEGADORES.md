@@ -25,8 +25,26 @@ O TelaLink detecta o que cada navegador consegue fazer e se adapta sozinho. Quem
 | Cada navegador decodifica codecs diferentes | Quem assiste informa quais decodifica; quem transmite escolhe um codec que **todos** aceitam (H.264, VP9 ou VP8) e troca na hora se entrar alguém com outro navegador |
 | Firefox marca a conexão em uso de outro jeito | Detecção do caminho (direta/TURN) reconhece os dois formatos |
 | Opções de captura não reconhecidas em versões antigas | Tenta de novo com o pedido mais simples |
-| Brave com WebRTC restrito (Shields) | Troca sozinho para a retransmissão |
+| Brave com WebRTC restrito (Shields → "Bloquear fingerprinting", política "Desativar UDP sem proxy") | Dos dois lados: quem transmite testa a conexão direta ao abrir o painel e avisa; quem assiste detecta em até 4 s e vai para a retransmissão (imagem em menos de 1 s nos testes). Ver abaixo |
 | Safari antigo (`webkitAudioContext`) | Usado automaticamente |
+
+## Brave: "transmitiu e eu não via nada"
+
+**Causa.** Com a proteção contra *fingerprinting* do Brave ativa, o WebRTC fica na política **"Desativar UDP sem proxy"**: o navegador não informa nenhum caminho de rede, e a conexão direta fica impossível. Antes da 2.7.0, quem assistia esperava ~13 s em "Conectando…" sem explicação até cair na retransmissão. Se a página parecia não carregar, a pessoa desistia antes.
+
+**Agora (2.7.0):**
+- Quem transmite pelo Brave vê no painel: *"Este navegador está bloqueando a conexão direta"*. Quem entrar recebe pela retransmissão já de cara.
+- Quem assiste pelo Brave (ou com VPN/extensão que corta o WebRTC) cai na retransmissão em até 4 s.
+- A tela de quem assiste mostra as **etapas** (link → PIN → quem transmite → imagem). Se alguma travar, aparece o que fazer e o botão **📋 Copiar diagnóstico**, sem PIN, chave nem sala, para mandar a quem transmite.
+- No painel, quem demora mais de 15 s conectando fica destacado.
+
+**Para usar a conexão direta (menos atraso) no Brave:** clique no leão (Shields) → desative "Bloquear fingerprinting" para o endereço do TelaLink, ou em `brave://settings/privacy` mude a "Política de tratamento de IP do WebRTC" para "Padrão". Também dá para usar Chrome ou Edge. Sem mudar nada, tudo funciona pela retransmissão, que continua criptografada de ponta a ponta.
+
+## Celular (quem assiste)
+
+- **Um toque** na imagem mostra os controles; **outro toque** esconde. **Dois toques** = tela cheia.
+- Os controles ficam embaixo, com botões grandes (só ícones). O volume fica nos botões do aparelho.
+- Tela cheia vira para **paisagem** quando o aparelho permite. O recorte (*notch*) do iPhone é respeitado.
 
 ## Como é testado
 

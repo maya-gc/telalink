@@ -9,6 +9,8 @@ import { RelayReceiver, decodableCodecs } from './relay.js';
 import { qualityText } from './media-util.js';
 
 const P2P_TIMEOUT_MS = 12_000;   // limite absoluto para a conexao direta/TURN
+const NO_REMOTE_MS = 4_000;      // quem transmite nao mandou NENHUM caminho de rede: retransmissao ja
+const STEP_TIMEOUT_MS = 8_000;   // cada etapa: se travar, explica o que fazer
 const NO_RESPONSE_MS = 4_000;    // sem NENHUMA resposta nesse tempo = rede bloqueando
 const roomId = new URLSearchParams(location.search).get('room');
 const sessionKey = keyFromHash(location.hash);
@@ -87,6 +89,10 @@ async function measureQuality() {
   return q;
 }
 setInterval(async () => {
+  // Primeira imagem de verdade chegou: etapa concluida (e some o aviso, se havia).
+  if (stepState.image === 'pending' && (await window.__telalink.framesReceived()) > 0) {
+    step('image', 'ok'); if ($('stageMsg').textContent === STUCK.image) stageMsg('');
+  }
   const q = await measureQuality();
   $('qualityTxt').textContent = q?.height ? ` · ${qualityText(q)}` : '';
 }, 2000);
@@ -108,14 +114,64 @@ async function join() {
   await openAndJoin();
 }
 
+// ------------------------------------------------------------ etapas visiveis
+// Mostra em que ponto a conexao esta e, se travar, o que fazer. Os tempos vao
+// para o diagnostico (sem PIN, chave ou endereco da sala).
+const STEPS = [
+  ['link', 'Conectar ao link'], ['pin', 'Conferir o PIN'], ['host', 'Falar com quem transmite'], ['image', 'Receber a imagem'],
+];
+const stepState = {}, stepTime = {};
+let t0 = 0, stepTimer = null;
+function step(name, state, hint = '') {
+  stepState[name] = state; if (state !== 'pending') stepTime[name] = Math.round(performance.now() - t0);
+  const ol = $('steps'); ol.classList.remove('hidden'); ol.textContent = '';
+  for (const [k, label] of STEPS) {
+    const li = document.createElement('li');
+    const st = stepState[k];
+    li.className = st || 'todo';
+    li.textContent = `${st === 'ok' ? '✓' : st === 'err' ? '✕' : st === 'pending' ? '…' : '○'} ${label}${k === name && hint ? ` — ${hint}` : ''}`;
+    ol.appendChild(li);
+  }
+  clearTimeout(stepTimer);
+  if (state === 'pending') stepTimer = setTimeout(() => stuck(name), STEP_TIMEOUT_MS);
+}
+const STUCK = {
+  link: 'Não foi possível conectar ao link. Ele pode estar desatualizado (peça o convite de novo), ou uma extensão/bloqueador ou a rede está impedindo. Tente outro navegador ou os dados móveis.',
+  pin: 'O servidor não respondeu ao PIN. Recarregue a página e tente de novo.',
+  host: 'Quem transmite não respondeu. Peça para conferir se o painel do TelaLink continua aberto e transmitindo, e se este é o link mais recente.',
+  image: 'A imagem ainda não chegou. Aguarde mais alguns segundos; se continuar, toque em “Copiar diagnóstico” e envie para quem transmite.',
+};
+function stuck(name) {
+  if (stepState[name] !== 'pending') return;
+  show($('gateMsg'), 'warn', STUCK[name]);
+  $('btnDiag').classList.remove('hidden');
+  if (name === 'image' && $('stage').classList.contains('on')) stageMsg(STUCK.image);
+}
+function diagnostic() {
+  return JSON.stringify({
+    telalink: 'diagnostico', navegador: caps.name, celular: caps.mobile, transporte: transport, etapas: stepTime, situacao: stepState,
+    recursos: { webrtc: caps.webrtc, retransmissao: caps.relayDecode, somRetransmissao: caps.relayAudio },
+    rede: { local: diag.local, remoto: diag.remote, estados: diag.states, pares: diag.pairs },
+    quadros: receiver?.stats?.framesDecoded ?? null, quando: new Date().toISOString(),
+  });
+}
+$('btnDiag').onclick = async () => {
+  const text = diagnostic();
+  try { await navigator.clipboard.writeText(text); show($('gateMsg'), 'ok', 'Diagnóstico copiado. Cole numa mensagem para quem transmite.'); }
+  catch { prompt('Copie o diagnóstico:', text); }
+};
+
 async function openAndJoin() {
+  if (!t0) t0 = performance.now();
+  step('link', 'pending');
   const sock = openSocket({
     onJson: onMessage,
     onBinary: (bytes) => receiver?.handle(bytes),
     onClose: () => onSocketClosed(sock),
   });
   ws = sock;
-  await sock.opened.catch(() => {});
+  try { await sock.opened; } catch { step('link', 'err'); return stuck('link'); }
+  step('link', 'ok'); step('pin', 'pending');
   sock.json({ type: 'viewer-join', roomId, pin: joinedPin });
 }
 
@@ -167,6 +223,7 @@ async function onMessage(m) {
     return show($('gateMsg'), 'err', txt || 'Não foi possível entrar.');
   }
   if (m.type === 'viewer-accepted') {
+    step('pin', 'ok'); step('host', 'pending');
     if (retry) { retry = 0; stageMsg(''); }
     viewerId = m.viewerId;
     iceServers = m.iceServers || [];
@@ -201,9 +258,17 @@ const sendSig = async (payload) => ws.json({ type: 'signal', data: await channel
 
 async function onHostSignal(p) {
   if (p.kind === 'hello') {
-    if (p.policy === 'relay' || typeof RTCPeerConnection !== 'function') return startRelay();
+    step('host', 'ok');
+    if (p.policy === 'relay' || typeof RTCPeerConnection !== 'function') { step('image', 'pending', 'pela retransmissão'); return startRelay(); }
+    step('image', 'pending', 'tentando a conexão direta');
     p2pTimer = setTimeout(() => { if (transport === 'conectando') fallbackToRelay(); }, P2P_TIMEOUT_MS);
     watchNoResponse(Date.now());
+    // Quem transmite nao mandou nenhum caminho de rede (ex.: Brave protegido): nao adianta esperar.
+    setTimeout(() => { if (transport === 'conectando' && !upgrading && diag.remote.length === 0) { diag.states.push('sem-caminho-remoto'); fallbackToRelay(); } }, NO_REMOTE_MS);
+    return;
+  }
+  if (p.kind === 'no-direct') {                     // quem transmite nao tem conexao direta
+    if (transport === 'conectando') { diag.states.push('transmissor-sem-conexao-direta'); fallbackToRelay(); }
     return;
   }
   if (p.kind === 'settings') {
@@ -251,7 +316,14 @@ function createPeer() {
   // Nenhum caminho de rede disponivel (VPN/extensao que desliga WebRTC):
   // nao adianta esperar o tempo-limite, troca ja para a retransmissao.
   pc.onicegatheringstatechange = () => {
-    if (pc?.iceGatheringState === 'complete' && localCandidates === 0) fallbackToRelay();
+    if (pc?.iceGatheringState !== 'complete' || localCandidates !== 0) return;
+    // Sem endereco proprio divulgado (ex.: Brave em "so a interface publica"), a
+    // conexao ainda pode sair por um caminho descoberto na hora: espera 1,5 s.
+    const conn = pc;
+    setTimeout(() => {
+      if (pc !== conn || ['connected', 'completed'].includes(conn.iceConnectionState) || conn.connectionState === 'connected') return;
+      diag.states.push('sem-caminho-local'); fallbackToRelay();
+    }, 1500);
   };
   pc.oniceconnectionstatechange = () => diag.states.push(`ice:${pc?.iceConnectionState}`);
   pc.onconnectionstatechange = async () => {
@@ -296,6 +368,7 @@ function watchNoResponse(start) {
 async function fallbackToRelay() {
   if (transport === 'retransmissao' || fallingBack) return;
   fallingBack = true;
+  if (stepState.image === 'pending') step('image', 'pending', 'pela retransmissão');
   diag.states.push('troca-para-retransmissao');
   clearTimeout(p2pTimer);
   if (pc) {
@@ -330,6 +403,7 @@ function showStage(kind) {
   $('relayCanvas').classList.toggle('hidden', kind !== 'canvas');
   $('btnPip').classList.toggle('hidden', kind !== 'video' || !document.pictureInPictureEnabled);
   flashBar();
+  if (!showStage.hinted) { showStage.hinted = true; showTapHint(); }
   applyVolume();
   if (kind === 'video') {
     // Navegadores bloqueiam som automatico sem clique: comeca mudo e avisa.
@@ -352,7 +426,7 @@ function cleanup() {
 // ------------------------------------------------------------ controles
 const store = { get(k, d) { try { const v = localStorage.getItem('telalink.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('telalink.' + k, JSON.stringify(v)); } catch {} } };
-const FITS = [['contain', '⤢ Caber'], ['cover', '⤡ Preencher'], ['real', '1:1 Tamanho real']];
+const FITS = [['contain', '⤢', ' Caber'], ['cover', '⤡', ' Preencher'], ['real', '1:1', ' Tamanho real']];
 const view = { volume: store.get('volume', 100), muted: false, fit: store.get('fit', 'contain') };
 window.__telalink.view = view;
 
@@ -368,9 +442,41 @@ function applyVolume() {
 function applyFit() {
   $('stage').classList.toggle('fit-cover', view.fit === 'cover');
   $('stage').classList.toggle('fit-real', view.fit === 'real');
-  $('btnFit').textContent = FITS.find((f) => f[0] === view.fit)[1];
+  const [, icon, label] = FITS.find((f) => f[0] === view.fit);
+  $('btnFit').textContent = icon;
+  const span = document.createElement('span'); span.className = 'lbl'; span.textContent = label; $('btnFit').appendChild(span);
 }
+// Celular/tablet: um toque mostra os controles, outro toque esconde (e eles
+// tambem somem sozinhos depois de alguns segundos). Dois toques = tela cheia.
+const touchUI = matchMedia('(pointer: coarse)').matches;
+let barPinned = false;
+function setBar(show, autoHideMs = 6000) {
+  barPinned = show;
+  $('bar').classList.toggle('show', show);
+  $('bar').classList.toggle('hide-force', !show && touchUI);
+  clearTimeout(flashBar.t);
+  if (show && autoHideMs) flashBar.t = setTimeout(() => setBar(false), autoHideMs);
+}
+let lastTap = 0, tapTimer = null;
+$('stage').addEventListener('pointerup', (e) => {
+  if (e.pointerType !== 'touch' || e.target.closest('.bar')) return;   // toques nos botoes nao contam
+  const now = Date.now();
+  if (now - lastTap < 300) {                       // dois toques: tela cheia
+    clearTimeout(tapTimer); lastTap = 0;
+    return $('btnFull').click();
+  }
+  lastTap = now;
+  tapTimer = setTimeout(() => setBar(!barPinned), 250);
+});
+function showTapHint() {
+  if (!touchUI) return;
+  $('tapHint').classList.remove('off');
+  setTimeout(() => $('tapHint').classList.add('off'), 3500);
+}
+window.__telalink.bar = () => ({ visible: $('bar').classList.contains('show'), touch: touchUI });
+
 function flashBar(ms = 3000) {
+  if (touchUI) return setBar(true, Math.max(ms, 4000));
   $('bar').classList.add('show');
   clearTimeout(flashBar.t); flashBar.t = setTimeout(() => $('bar').classList.remove('show'), ms);
 }
@@ -398,8 +504,9 @@ $('stage').addEventListener('click', () => {
   $('remote').play().catch(() => {}); audioCtx?.resume?.().catch?.(() => {});
   stageMsg('');
 });
-$('stage').addEventListener('mousemove', () => flashBar());
-$('stage').addEventListener('dblclick', () => $('btnFull').click());
+// Mouse mexendo mostra os controles (no celular, o toque cuida disso).
+$('stage').addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') flashBar(); });
+$('stage').addEventListener('dblclick', () => { if (!touchUI) $('btnFull').click(); });
 document.addEventListener('keydown', (e) => {
   if (!$('stage').classList.contains('on') || e.target.tagName === 'INPUT') return;
   if (e.key === 'f' || e.key === 'F') $('btnFull').click();
