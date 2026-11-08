@@ -675,9 +675,15 @@ async function preferCodecs(pc) {
 // ------------------------------------------------------------ conexao direta possivel?
 // Alguns navegadores bloqueiam a conexao direta (ex.: Brave com protecao contra
 // fingerprinting = "Desativar UDP sem proxy"; VPNs/extensoes). Sem testar, quem
-// assiste esperava ~12 s sem explicacao ate a retransmissao. Agora: testa uma vez
-// e, se nao der, todos ja entram pela retransmissao.
-let directBlocked = null;               // null = ainda testando
+// assiste esperava ~12 s sem explicacao ate a retransmissao.
+// - directBlocked: CONFIRMADO por uma conexao de verdade (nenhum caminho deste
+//   lado). So isso faz os proximos ja entrarem pela retransmissao.
+// - probeDirect: teste rapido ao abrir o painel, so para AVISAR no Brave. Ele
+//   roda antes da permissao de captura; sem ela o Chromium esconde os enderecos
+//   (mDNS), e no macOS/redes isoladas isso pode dar zero caminhos sem haver
+//   bloqueio nenhum. Por isso ele nunca decide o caminho sozinho.
+let directBlocked = null;               // null = ainda nao sabe
+let probeBlocked = null;
 async function probeDirect() {
   if (typeof RTCPeerConnection !== 'function') { directBlocked = true; return renderDirectNote(); }
   const pc = new RTCPeerConnection({ iceServers });
@@ -689,11 +695,12 @@ async function probeDirect() {
     await new Promise((r) => { const t = setTimeout(r, 3000); pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); } }; });
   } catch {}
   pc.close();
-  directBlocked = n === 0;
+  probeBlocked = n === 0;
   renderDirectNote();
 }
 function renderDirectNote() {
-  if (!directBlocked) return show($('directNote'), '', '');
+  const blocked = directBlocked === true || (probeBlocked === true && directBlocked !== false && caps.name === 'Brave');
+  if (!blocked) return show($('directNote'), '', '');
   show($('directNote'), 'warn', `Seu navegador (${caps.name}) está bloqueando a conexão direta${caps.name === 'Brave' ? ' — no Brave, isso acontece com a proteção contra fingerprinting dos Escudos' : ''}. ` +
     'Sem problema: quem assistir recebe pela retransmissão pelo link (um pouco mais de atraso). ' +
     (caps.name === 'Brave' ? 'Para a conexão direta: clique no ícone do leão (Escudos) na barra de endereço deste painel e desative "Bloquear fingerprinting", ou use o Chrome/Edge.' : 'Para a conexão direta, desative a extensão/VPN que bloqueia o WebRTC ou use outro navegador.'));
@@ -710,10 +717,14 @@ async function createOffer(viewerId) {
   await preferCodecs(pc);
   await setSenderQuality(pc);
   let sentCandidates = 0;
-  pc.onicecandidate = (e) => { if (e.candidate) { sentCandidates++; sendSig(viewerId, { kind: 'ice', candidate: e.candidate.toJSON() }); } };
+  pc.onicecandidate = (e) => { if (e.candidate) { if (e.candidate.candidate) sentCandidates++; sendSig(viewerId, { kind: 'ice', candidate: e.candidate.toJSON() }); } };
   pc.onicegatheringstatechange = () => {
-    // Nenhum caminho deste lado: avisa quem assiste para trocar ja para a retransmissao.
-    if (pc.iceGatheringState === 'complete' && sentCandidates === 0) sendSig(viewerId, { kind: 'no-direct' }).catch(() => {});
+    if (pc.iceGatheringState !== 'complete') return;
+    // Nenhum caminho deste lado: avisa quem assiste para trocar ja para a retransmissao,
+    // e os proximos ja entram por ela. Com caminhos, a conexao direta e possivel.
+    const none = sentCandidates === 0;
+    if (none) sendSig(viewerId, { kind: 'no-direct' }).catch(() => {});
+    if (directBlocked !== none) { directBlocked = none; renderDirectNote(); }
   };
   pc.onconnectionstatechange = async () => {
     if (pc.connectionState === 'connected') { v.transport = await describeTransport(pc); await setSenderQuality(pc); renderViewers(); }
