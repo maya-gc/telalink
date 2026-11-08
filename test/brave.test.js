@@ -19,7 +19,10 @@ let chromium = null;
 try { ({ chromium } = createRequire(import.meta.url)('playwright')); } catch {}
 const skip = !chromium && 'Playwright nao instalado';
 const ARGS = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
-  '--auto-select-desktop-capture-source=Entire screen', '--autoplay-policy=no-user-gesture-required'];
+  '--auto-select-desktop-capture-source=Entire screen', '--autoplay-policy=no-user-gesture-required',
+  // Como nos outros testes: no runner do macOS os nomes .local (mDNS) nao resolvem entre
+  // dois navegadores separados. A politica "Desativar UDP sem proxy" continua valendo.
+  '--disable-features=WebRtcHideLocalIpsWithMdns'];
 const POLICY = { protegido: 'disable_non_proxied_udp', publica: 'default_public_interface_only', normal: null };
 const MAX_MS = 6000;
 

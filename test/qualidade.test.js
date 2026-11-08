@@ -155,7 +155,8 @@ describe('Qualidade da imagem (navegador real)', { skip, timeout: 240_000 }, () 
     for (const r of ok) {
       assert.deepEqual(r.errors, [], `${r.label}: sem erros`);
       assert.equal(r.used, r.label, `${r.label}: usou o codec pedido`);
-      assert.ok(r.decoded > 20, `${r.label}: quadros decodificados (${r.decoded})`);
+      // >= 15 em 2,5 s: VP8 em 1080p por software em runner lento do macOS fica perto de 20.
+      assert.ok(r.decoded >= 15, `${r.label}: quadros decodificados (${r.decoded})`);
       assert.equal(r.h, 1080, `${r.label}: chegou em 1080p`);
     }
     await ctx.close();

@@ -17,15 +17,31 @@ const { chromium } = createRequire(import.meta.url)('playwright');
 const PORT = 4444;
 const WD = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function wd(method, path, body) {
-  const r = await fetch(WD + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+async function wd(method, path, body, timeoutMs = 90_000) {
+  let r;
+  try {
+    r = await fetch(WD + path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) { throw new Error(`WebDriver ${method} ${path.replace(/\/session\/[^/]+/, '/session/…')}: ${err.name === 'TimeoutError' ? `sem resposta em ${timeoutMs / 1000} s` : err.message}`); }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`WebDriver ${method} ${path}: ${r.status} ${JSON.stringify(j.value || j).slice(0, 300)}`);
   return j.value;
 }
 
-const driver = spawn('safaridriver', ['-p', String(PORT)], { stdio: 'inherit' });
-for (let i = 0; i < 50; i++) { try { await fetch(`${WD}/status`); break; } catch { await sleep(200); } }
+let driver = null;
+async function startDriver() {
+  driver?.kill(); if (driver) await sleep(1000);
+  driver = spawn('safaridriver', ['-p', String(PORT)], { stdio: 'inherit' });
+  for (let i = 0; i < 50; i++) { try { await fetch(`${WD}/status`); break; } catch { await sleep(200); } }
+}
+await startDriver();
+// Abrir o Safari pelo WebDriver as vezes trava no runner do macOS (fica "pareado"):
+// tempo limite e ate 3 tentativas, reiniciando o safaridriver entre elas.
+async function newSession() {
+  for (let i = 1; ; i++) {
+    try { return (await wd('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari' } } }, 60_000)).sessionId; }
+    catch (err) { if (i >= 3) throw err; console.log(`Safari: ${err.message}; tentando de novo (${i}/3)`); await startDriver(); }
+  }
+}
 
 const settings = new SettingsStore({ dir: mkdtempSync(join(tmpdir(), 'tl-safari-')) }).load();
 const app = await startApp({ settings, iceProvider: new IceProvider({ settings }), getTunnelInfo: () => ({ status: 'on', url: app.base, provider: 'ssh' }) });
@@ -45,7 +61,7 @@ for (const policy of ['auto', 'relay']) {
     const link = await host.inputValue('#shareLink');
     const pin = (await host.textContent('#pinView')).trim();
 
-    session = (await wd('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari' } } })).sessionId;
+    session = await newSession();
     const s = `/session/${session}`;
     await wd('POST', `${s}/url`, { url: link });
     // Espera a pagina terminar de carregar (scripts prontos) antes de clicar em Entrar.
@@ -72,7 +88,7 @@ for (const policy of ['auto', 'relay']) {
   } catch (err) {
     failures++; console.log(`::error::Safari real (${label}): ${err.message}`);
   } finally {
-    if (session) await wd('DELETE', `/session/${session}`).catch(() => {});
+    if (session) await wd('DELETE', `/session/${session}`, null, 20_000).catch(() => startDriver());
     await ctx.close();
   }
 }
