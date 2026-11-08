@@ -60,7 +60,7 @@ describe('Brave e navegadores com WebRTC restrito (navegador real)', { skip, tim
     console.log(`      Brave protegido -> normal: ${r.ms} ms, ${r.transport}`);
     assert.ok(r.ms < MAX_MS, `imagem demorou ${r.ms} ms (antes: ~13 s)`);
     assert.equal(r.transport, 'retransmissao');
-    assert.match(await r.host.textContent('#directNote'), /bloqueando a conexão direta/);
+    await r.host.waitForFunction(() => /bloqueando a conexão direta/.test(document.getElementById('directNote').textContent), null, { timeout: 8000 });
     await r.close();
   });
 

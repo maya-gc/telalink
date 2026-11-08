@@ -723,8 +723,14 @@ async function createOffer(viewerId) {
     // Nenhum caminho deste lado: avisa quem assiste para trocar ja para a retransmissao,
     // e os proximos ja entram por ela. Com caminhos, a conexao direta e possivel.
     const none = sentCandidates === 0;
-    if (none) sendSig(viewerId, { kind: 'no-direct' }).catch(() => {});
-    if (directBlocked !== none) { directBlocked = none; renderDirectNote(); }
+    if (!none) { if (directBlocked !== false) { directBlocked = false; renderDirectNote(); } return; }
+    sendSig(viewerId, { kind: 'no-direct' }).catch(() => {});
+    // Confirmado so se a conexao direta nao sair mesmo assim (no macOS ela sai
+    // pelos caminhos de quem assiste, mesmo com zero caminhos aqui).
+    setTimeout(() => {
+      const ok = pc.connectionState === 'connected' || ['connected', 'completed'].includes(pc.iceConnectionState);
+      if (directBlocked !== !ok) { directBlocked = !ok; renderDirectNote(); }
+    }, 4000);
   };
   pc.onconnectionstatechange = async () => {
     if (pc.connectionState === 'connected') { v.transport = await describeTransport(pc); await setSenderQuality(pc); renderViewers(); }

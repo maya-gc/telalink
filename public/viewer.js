@@ -9,6 +9,7 @@ import { RelayReceiver, decodableCodecs } from './relay.js';
 import { qualityText } from './media-util.js';
 
 const P2P_TIMEOUT_MS = 12_000;   // limite absoluto para a conexao direta/TURN
+const PRFLX_GRACE_MS = 2_500;   // quem transmite sem caminhos: espera a direta sair pelos caminhos daqui
 const NO_REMOTE_MS = 4_000;      // quem transmite nao mandou NENHUM caminho de rede: retransmissao ja
 const STEP_TIMEOUT_MS = 8_000;   // cada etapa: se travar, explica o que fazer
 const NO_RESPONSE_MS = 4_000;    // sem NENHUMA resposta nesse tempo = rede bloqueando
@@ -268,7 +269,11 @@ async function onHostSignal(p) {
     return;
   }
   if (p.kind === 'no-direct') {                     // quem transmite nao tem conexao direta
-    if (transport === 'conectando') { diag.states.push('transmissor-sem-conexao-direta'); fallbackToRelay(); }
+    // Zero caminhos do outro lado nem sempre e bloqueio: no macOS o Chromium pode
+    // esconder os enderecos (mDNS) e a conexao direta ainda sai pelos caminhos
+    // DESTE lado (peer-reflexive). Da um instante para ela; senao, retransmissao.
+    diag.states.push('transmissor-sem-caminhos');
+    setTimeout(() => { if (transport === 'conectando' && !upgrading) { diag.states.push('transmissor-sem-conexao-direta'); fallbackToRelay(); } }, PRFLX_GRACE_MS);
     return;
   }
   if (p.kind === 'settings') {
