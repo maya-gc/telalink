@@ -29,7 +29,8 @@ export const DEFAULTS = Object.freeze({
     static: { urls: '', username: '', credential: null },
   },
   capGB: 800,                       // trava de consumo mensal estimado de TURN (null = sem trava)
-  tunnel: 'auto',                   // link externo: auto | cloudflare | ssh | off
+  tunnel: 'auto',                   // link externo: auto | cloudflare | ssh | fixo | off
+  fixedLink: { hostname: '', token: null },   // endereco fixo: tunel nomeado da Cloudflare (token protegido)
   prefs: { quality: 'auto', fps: 30, hint: 'motion', audio: true, volume: 100, bitrate: 0, notify: true, priority: 'desempenho', maxDirect: 2, extraAudio: '', extraVolume: 100 },
   usage: { month: '', bytes: 0 },
 });
@@ -104,8 +105,25 @@ export function applyUpdate(current, input, { protectFn = protect } = {}) {
     next.capGB = input.capGB;
   }
   if (input.tunnel !== undefined) {
-    if (!['auto', 'cloudflare', 'ssh', 'off'].includes(input.tunnel)) throw new Error('metodo de link externo invalido');
+    if (!['auto', 'cloudflare', 'ssh', 'fixo', 'off'].includes(input.tunnel)) throw new Error('metodo de link externo invalido');
     next.tunnel = input.tunnel;
+  }
+  if (input.fixedLink !== undefined) {
+    const f = input.fixedLink;
+    if (!f || typeof f !== 'object') throw new Error('endereco fixo invalido');
+    const out = { ...(next.fixedLink || DEFAULTS.fixedLink) };
+    if (f.hostname !== undefined) {
+      const h = String(f.hostname || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      if (h && !(h.length <= 253 && /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(h))) throw new Error('endereco invalido (ex.: tela.seudominio.com.br)');
+      out.hostname = h;
+    }
+    if (f.token !== undefined && f.token !== '') {
+      const t = String(f.token).trim();
+      if (!(t.length >= 50 && t.length <= 4096 && /^[A-Za-z0-9+/=_-]+$/.test(t))) throw new Error('token do tunel invalido (copie o token inteiro do painel da Cloudflare)');
+      out.token = protectFn(t);
+    }
+    if (f.clearToken) out.token = null;
+    next.fixedLink = out;
   }
   if (input.prefs !== undefined) {
     const p = input.prefs;
@@ -168,7 +186,7 @@ export class SettingsStore {
     if (existsSync(this.file)) {
       try {
         const raw = JSON.parse(readFileSync(this.file, 'utf8'));
-        this.data = { ...structuredClone(DEFAULTS), ...raw, turn: { ...structuredClone(DEFAULTS.turn), ...raw.turn }, prefs: { ...DEFAULTS.prefs, ...raw.prefs } };
+        this.data = { ...structuredClone(DEFAULTS), ...raw, turn: { ...structuredClone(DEFAULTS.turn), ...raw.turn }, prefs: { ...DEFAULTS.prefs, ...raw.prefs }, fixedLink: { ...DEFAULTS.fixedLink, ...raw.fixedLink } };
       } catch { /* arquivo corrompido: volta ao padrao sem derrubar o programa */ }
     }
     return this;
@@ -197,6 +215,12 @@ export class SettingsStore {
     return this._secretCache.get(provider);
   }
 
+  // Token do tunel de endereco fixo (aberto so na hora de iniciar o tunel).
+  fixedToken() {
+    if (!this._secretCache.has('fixedLink')) this._secretCache.set('fixedLink', unprotect(this.data.fixedLink?.token, this.platform));
+    return this._secretCache.get('fixedLink');
+  }
+
   // Consumo mensal estimado de TURN (zera ao virar o mes).
   addUsage(bytes, now = new Date()) {
     const month = now.toISOString().slice(0, 7);
@@ -221,6 +245,9 @@ export class SettingsStore {
       try { shown = d.turn[p][f] ? mask(this.secret(p)) : ''; } catch { shown = '(nao foi possivel abrir neste PC)'; }
       view.turn[p][f] = shown;
     }
+    let fixedShown = '';
+    try { fixedShown = d.fixedLink?.token ? mask(this.fixedToken()) : ''; } catch { fixedShown = '(nao foi possivel abrir neste PC)'; }
+    view.fixedLink = { hostname: d.fixedLink?.hostname || '', token: fixedShown };
     view.usageGB = Number(this.usageGB(now).toFixed(2));
     view.overCap = this.overCap(now);
     view.storage = { dir: this.dir, protection: this.platform === 'win32' ? 'DPAPI (Windows, so seu usuario)' : 'arquivo com permissao 600' };

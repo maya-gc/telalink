@@ -57,6 +57,11 @@ bytes 2… IV(12) | AES-256-GCM( seq u32 | timestamp i64 | duração u32 | metaL
 
 Assim um espectador com internet lenta perde fluidez, mas não acumula atraso, e não afeta os outros.
 
+Isso só enxerga a fila **neste PC**. Quando a fila se forma no túnel ou na internet, quem vê é quem assiste:
+
+- **Atraso de fila medido por quem assiste** (`relay-report`, 1/s): quem transmite baixa a banda antes de travar. Vale a pior pessoa; com 3 ou mais, a segunda pior.
+- **Buffer de reprodução** em quem assiste (`PlayoutClock`): cada quadro é mostrado no horário de captura mais um atraso adaptativo, e o som usa o mesmo atraso. Engasgos da rede viram atraso, não "congela e corre". Ver `FLUIDEZ-E-LINK.md`.
+
 ## Decisões de projeto
 
 | Decisão | Motivo |

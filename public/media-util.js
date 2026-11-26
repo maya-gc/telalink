@@ -152,10 +152,13 @@ export function senderEncoding(name, fps = 30, sourceHeight = 0, { limitMbps = 0
 }
 
 // O que o navegador corta primeiro quando falta internet/processador.
-// Texto/detalhe ou resolucao escolhida: mantem a nitidez (corta quadros).
+// Texto/detalhe: mantem a nitidez (corta quadros).
+// Movimento (filme, jogo, video): manter o ritmo dos quadros. Cortar quadros e
+// o que se via como "travadinhas"; baixar a resolucao por alguns segundos quase
+// nao se nota. Com resolucao escolhida a mao, um meio-termo ('balanced').
 export function degradationFor(name, hint) {
-  if (hint === 'detail' || qualityPreset(name).keepRes) return 'maintain-resolution';
-  return 'balanced';
+  if (hint === 'detail') return 'maintain-resolution';
+  return qualityPreset(name).keepRes ? 'balanced' : 'maintain-framerate';
 }
 
 // Acrescenta ao SDP a banda inicial e maxima para cada codec de video
@@ -224,11 +227,86 @@ export function relayHeightFor(bps) {
 
 // Controle de banda da retransmissao (aumenta devagar, reduz rapido),
 // guiado pela fila de envio do WebSocket. Retorna a nova banda (bps).
-export function adaptBitrate(current, { buffered, maxBps, minBps = 500_000 }) {
-  if (buffered > 1_000_000) return Math.max(minBps, Math.round(current * 0.7));
-  if (buffered > 400_000) return Math.max(minBps, Math.round(current * 0.9));
-  if (buffered < 150_000) return Math.min(maxBps, Math.round(current * 1.08));
+// Banda da retransmissao: reduz rapido, aumenta devagar. Sinais:
+// - buffered: fila de envio de quem transmite (so enche se o PC/servidor atrasa);
+// - queueDelayMs: atraso de fila que QUEM ASSISTE mede (pior pessoa). E o sinal
+//   que enxerga o tunel/internet lenta; sem ele a banda nunca baixava e a fila
+//   enchia no tunel ate travar e "correr".
+export function adaptBitrate(current, { buffered = 0, queueDelayMs = 0, maxBps, minBps = 500_000 }) {
+  if (buffered > 1_000_000 || queueDelayMs > 600) return Math.max(minBps, Math.round(current * 0.7));
+  if (buffered > 400_000 || queueDelayMs > 250) return Math.max(minBps, Math.round(current * 0.85));
+  if (buffered < 150_000 && queueDelayMs < 80) return Math.min(maxBps, Math.round(current * 1.08));   // >= 7%: o sender so reconfigura acima disso
   return current;
+}
+
+// ---------------------------------------------------------------------------
+// Relogio de reproducao (jitter buffer) da retransmissao.
+// Cada pacote tem o horario em que foi capturado (timestamp, us). Quem assiste
+// mapeia esse horario para o relogio local e exibe com um atraso-alvo (delay):
+//   exibir_em = timestamp/1000 + offset + delay
+// offset = menor "transito" recente (pacote que chegou sem fila); delay cresce
+// na hora quando chega pacote atrasado (absorve a rajada no ritmo normal, em vez
+// de congelar e depois acelerar) e diminui devagar quando a rede fica estavel.
+export class PlayoutClock {
+  constructor({ minDelay = 80, maxDelay = 1200, startDelay = 150, decayPerSec = 15, windowMs = 10_000 } = {}) {
+    Object.assign(this, { minDelay, maxDelay, decayPerSec, windowMs });
+    this.delay = startDelay;
+    this.offset = null;                  // ms: chegada - timestamp do pacote mais rapido
+    this.samples = [];                   // [chegada, transito] para o minimo deslizante
+    this.lastDecay = null;
+    this.queueDelay = 0;                 // atraso de fila do ultimo pacote (ms)
+  }
+  // Registra a chegada de um pacote; devolve quando exibi-lo (relogio local, ms).
+  arrive(tsUs, now) {
+    const transit = now - tsUs / 1000;
+    // Salto nos horarios (fonte trocada, codec novo, relogio reiniciado): o horario
+    // andou para tras, ou para frente muito mais que o tempo real. Recomeca o
+    // mapeamento em vez de achar que a rede atrasou (ou adiantou) segundos.
+    if (this.lastTs !== undefined && (tsUs < this.lastTs - 1000 || (tsUs - this.lastTs) / 1000 > now - this.lastArrival + 3000)) { this.samples = []; this.offset = null; }
+    this.lastTs = tsUs; this.lastArrival = now;
+    this.samples.push([now, transit]);
+    while (this.samples.length && now - this.samples[0][0] > this.windowMs) this.samples.shift();
+    let min = Infinity;
+    for (const [, t] of this.samples) if (t < min) min = t;
+    // O minimo so sobe quando a janela esquece o antigo: evita "pular" para tras.
+    if (this.offset === null || min < this.offset) this.offset = min;
+    else if (this.samples.length > 20 && min > this.offset + 2) this.offset += Math.min(min - this.offset, 5);
+    this.queueDelay = Math.max(0, transit - this.offset);
+    // Chegou tarde para o atraso atual: aumenta o atraso (com folga), ate o teto.
+    if (this.queueDelay + 20 > this.delay) this.delay = Math.min(this.maxDelay, this.queueDelay * 1.25 + 30);
+    this._decay(now);
+    return this.due(tsUs);
+  }
+  due(tsUs) { return tsUs / 1000 + (this.offset ?? 0) + this.delay; }
+  _decay(now) {
+    if (this.lastDecay === null) { this.lastDecay = now; return; }
+    const dt = (now - this.lastDecay) / 1000;
+    this.lastDecay = now;
+    // Reduz devagar (no maximo ~1,5% de velocidade): imperceptivel.
+    if (this.delay > this.minDelay && this.queueDelay * 1.25 + 30 < this.delay) this.delay = Math.max(this.minDelay, this.delay - this.decayPerSec * dt);
+  }
+}
+
+// Suavidade da imagem a partir dos horarios em que cada quadro apareceu (ms).
+//  - freezes: pausas acima de 200 ms (e o tempo total congelado);
+//  - bursts: quadros que apareceram "colados" no anterior logo depois de uma
+//    pausa, ou seja, a imagem correndo para alcancar;
+//  - jitterMs: desvio do intervalo entre quadros.
+export function smoothness(times, { freezeMs = 200 } = {}) {
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) gaps.push(times[i] - times[i - 1]);
+  if (!gaps.length) return { frames: times.length, fps: 0, freezes: 0, frozenMs: 0, maxGapMs: 0, bursts: 0, jitterMs: 0 };
+  const sorted = [...gaps].sort((a, b) => a - b);
+  const typical = sorted[Math.floor(sorted.length / 2)] || 1;
+  let freezes = 0, frozenMs = 0, bursts = 0, afterFreeze = 0;
+  for (const g of gaps) {
+    if (g > freezeMs) { freezes++; frozenMs += g - typical; afterFreeze = 10; continue; }
+    if (afterFreeze > 0) { afterFreeze--; if (g < typical * 0.35) bursts++; }
+  }
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  const jitterMs = Math.sqrt(gaps.reduce((a, g) => a + (g - mean) ** 2, 0) / gaps.length);
+  const span = times[times.length - 1] - times[0];
+  return { frames: times.length, fps: span > 0 ? ((times.length - 1) * 1000) / span : 0, freezes, frozenMs: Math.round(frozenMs), maxGapMs: Math.round(sorted[sorted.length - 1]), bursts, jitterMs: Math.round(jitterMs * 10) / 10 };
 }
 
 // Texto curto de qualidade: "1080p · 30 qps · 6,2 Mbps".

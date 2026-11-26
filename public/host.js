@@ -4,7 +4,7 @@
 //  Tudo o mais (qualidade, audio, conexao) fica em Configuracoes.
 // =============================================================================
 import { $, show, openSocket, describeTransport, turnBytesSent, TRANSPORT_LABEL, supportsWebCodecs, caps, newAudioContext } from './common.js';
-import { generateSessionKey, deriveKeys, toB64url, SecureChannel } from './crypto.js';
+import { generateSessionKey, deriveKeys, toB64url, fromB64url, SecureChannel } from './crypto.js';
 import { BlackScreenDetector, QUALITY, qualityPreset, captureConstraints, senderEncoding, inviteText,
   maxKbpsFor, degradationFor, withBitrateHints, orderCodecs, qualityText } from './media-util.js';
 import { RelaySender } from './relay.js';
@@ -26,7 +26,7 @@ const viewers = new Map(); // viewerId -> { channel, pc, transport, turnReported
 const relayViewers = new Set();
 
 window.__telalink = {
-  get viewers() { return [...viewers.entries()].map(([id, v]) => ({ id, transport: v.transport })); },
+  get viewers() { return [...viewers.entries()].map(([id, v]) => ({ id, transport: v.transport, queueDelay: v.queueDelay })); },
   get relay() { return relay ? { ...relay.stats } : null; },
   // Parametros de envio aplicados a cada espectador (altura efetiva e banda).
   async sending() {
@@ -375,11 +375,38 @@ let liveSince = 0;
 const shareBase = () => tunnel.url || location.origin;
 const linkFor = () => `${shareBase()}/view?room=${roomId}#k=${toB64url(sessionKey)}`;
 
+// O link (sala + chave + PIN) fica guardado NESTE computador e e reaproveitado:
+// recarregar o painel, encerrar e comecar de novo ou reabrir o programa nao
+// geram um link novo (antes, cada transmissao gerava outro). "Gerar link novo"
+// descarta o antigo: quem o tem nao entra mais.
+const SAVED_ROOM = 'telalink.sala';
+function savedRoom() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SAVED_ROOM) || 'null');
+    if (s && /^[0-9a-f-]{36}$/i.test(s.roomId) && /^\d{6}$/.test(s.pin) && fromB64url(s.key).length === 32) return s;
+  } catch {}
+  return null;
+}
+function saveRoom() { try { localStorage.setItem(SAVED_ROOM, JSON.stringify({ roomId, pin, key: toB64url(sessionKey), at: Date.now() })); } catch {} }
+function renderSameLink() { $('sameLink')?.classList.toggle('hidden', !savedRoom()); }
+renderSameLink();
+$('btnFreshLink').onclick = async () => {
+  const old = savedRoom();
+  try { localStorage.removeItem(SAVED_ROOM); } catch {}
+  if (old) await fetch('/api/close-room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId: old.roomId }) }).catch(() => {});
+  renderSameLink();
+  toast('🔗 Link antigo desativado. A próxima transmissão terá um link e um PIN novos.');
+};
+
 async function goLive() {
-  const res = await fetch('/api/create-room', { method: 'POST' });
-  ({ roomId, pin } = await res.json());
-  sessionKey = generateSessionKey();
+  const saved = savedRoom();
+  const res = await fetch('/api/create-room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(saved ? { roomId: saved.roomId, pin: saved.pin } : {}) });
+  let reused;
+  ({ roomId, pin, reused } = await res.json());
+  sessionKey = reused && saved && saved.roomId === roomId ? fromB64url(saved.key) : generateSessionKey();
   keys = await deriveKeys(sessionKey, roomId);
+  saveRoom();
+  if (reused) toast('🔗 Mesmo link e PIN da última vez — quem já tem o convite pode entrar.');
 
   $('pinView').textContent = pin;
   $('preview').srcObject = output.stream;
@@ -585,8 +612,9 @@ function connect() {
       else if (m.type === 'viewer-left') onViewerLeft(m.viewerId);
       else if (m.type === 'relay-want') onRelayWant(m.viewerId);
       else if (m.type === 'relay-keyframe') relay?.requestKeyframe();
+      else if (m.type === 'relay-report') { relay?.report(m.viewerId, m.qd); const v = viewers.get(m.viewerId); if (v) v.queueDelay = m.qd; }
       else if (m.type === 'pin') {
-        pin = m.pin; $('pinView').textContent = pin; show($('pinAlert'), '', '');
+        pin = m.pin; $('pinView').textContent = pin; show($('pinAlert'), '', ''); saveRoom();
         await copyInvite(true);
         toast(`🔑 Novo PIN: ${pin} — convite copiado de novo. Quem já assiste continua.`);
       } else if (m.type === 'pin-failures') {

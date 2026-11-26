@@ -229,6 +229,11 @@ describe('Porta exclusiva dos tuneis (externa por definicao)', () => {
     }
     const p = await rawGet(app.externalPort, '/api/create-room', { method: 'POST', headers: SEM_CABECALHO(app) });
     assert.equal(p.status, 403);
+    // Quem tem o link nao consegue apagar a sala (nem reaproveitar uma) pela porta externa.
+    for (const path of ['/api/close-room', '/api/create-room']) {
+      const q = await rawGet(app.externalPort, path, { method: 'POST', headers: { ...SEM_CABECALHO(app), 'content-type': 'application/json' }, body: JSON.stringify({ roomId: '00000000-0000-4000-8000-000000000000', pin: '123456' }) });
+      assert.equal(q.status, 403, path);
+    }
     assert.equal(app.rooms.size, before);
   });
 

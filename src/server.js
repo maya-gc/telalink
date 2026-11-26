@@ -33,6 +33,7 @@ export const UNAUTH_TIMEOUT_MS = 60 * 1000;  // conexao que nao entrou em sala e
 export const MESSAGE_RATE = { perSec: 30, burst: 300 }; // mensagens de texto por conexao
 export const MAX_IP_FAILURES = 30;           // por IP...
 export const IP_WINDOW_MS = 15 * 60 * 1000;  // ...nesta janela
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const ORPHAN_ROOM_MS = 10 * 60 * 1000;
 export const MAX_VIEWERS = 50;               // por sala
 export const RELAY_SOFT_QUEUE = 1.5 * 1024 * 1024; // acima disto, so quadros-chave
@@ -75,7 +76,7 @@ const SECURITY_HEADERS = {
 
 // Rotas que so o dono do PC pode usar.
 const HOST_ONLY = new Set(['/', '/host', '/host.html', '/host.js', '/config', '/config.html', '/config.js',
-  '/api/create-room', '/api/info', '/api/settings', '/api/settings/test']);
+  '/api/create-room', '/api/close-room', '/api/info', '/api/settings', '/api/settings/test']);
 
 // --------------------------------------------------------------- PIN
 export const generatePin = () => String(randomInt(100000, 1000000));
@@ -111,7 +112,7 @@ export function clientIp(req, provider = null) {
   const h = req.headers;
   const direct = req.socket.remoteAddress;
   if (!isExternal(req)) return direct;
-  if (provider === 'cloudflare' && h['cf-connecting-ip']) return String(h['cf-connecting-ip']).trim();
+  if ((provider === 'cloudflare' || provider === 'cloudflare-fixo') && h['cf-connecting-ip']) return String(h['cf-connecting-ip']).trim();
   const xff = String(h['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
   return xff.length ? xff[xff.length - 1] : direct;
 }
@@ -167,17 +168,53 @@ export function createServer({
     res.end(msg);
   };
 
+  const newRoom = (pin) => {
+    const roomKey = randomBytes(64);
+    return { roomKey, pinTag: pinTag(roomKey, pin), host: null, viewers: new Map(), relay: new Set(), attempts: 0, createdAt: Date.now(), hostGoneAt: 0, lastKeyReq: 0 };
+  };
+
   async function handleApi(req, res, pathname) {
     if (pathname === '/api/create-room') {
       if (req.method !== 'POST') return text(res, 405, 'Use POST');
+      // Opcional: { roomId, pin } da transmissao anterior -> o MESMO link continua
+      // valendo (recarregar a pagina, encerrar e comecar de novo, reabrir o programa).
+      // A chave do link (#k=) nunca passa pelo servidor: so o painel a guarda.
+      let want = {};
+      if (/^application\/json\b/i.test(req.headers['content-type'] || '')) {
+        try { want = await readJson(req); } catch (err) { return json(res, err.status || 400, { error: err.message }); }
+      }
+      const reuseId = typeof want.roomId === 'string' && UUID_RE.test(want.roomId) ? want.roomId : null;
+      const reusePin = typeof want.pin === 'string' && /^\d{6}$/.test(want.pin) ? want.pin : null;
+      if (reuseId && reusePin) {
+        const r = rooms.get(reuseId);
+        if (r && !r.host && pinMatches(r.roomKey, r.pinTag, reusePin)) {
+          r.hostGoneAt = 0; r.attempts = 0; r.lockUntil = 0;
+          return json(res, 200, { roomId: reuseId, pin: reusePin, reused: true });
+        }
+        if (!r) {
+          rooms.set(reuseId, newRoom(reusePin));
+          return json(res, 200, { roomId: reuseId, pin: reusePin, reused: true });
+        }
+        // Sala em uso por outra aba (ou PIN diferente): cria uma nova.
+      }
       const roomId = randomUUID();
       const pin = generatePin();
-      const roomKey = randomBytes(64);
-      rooms.set(roomId, {
-        roomKey, pinTag: pinTag(roomKey, pin), host: null, viewers: new Map(), relay: new Set(),
-        attempts: 0, createdAt: Date.now(), lastKeyReq: 0,
-      });
-      return json(res, 200, { roomId, pin });
+      rooms.set(roomId, newRoom(pin));
+      return json(res, 200, { roomId, pin, reused: false });
+    }
+    if (pathname === '/api/close-room') {
+      // "Gerar link novo": o link antigo deixa de valer na hora (quem estiver
+      // esperando com ele e avisado e desconectado).
+      if (req.method !== 'POST') return text(res, 405, 'Use POST');
+      let body;
+      try { body = await readJson(req); } catch (err) { return json(res, err.status || 400, { error: err.message }); }
+      const id = typeof body.roomId === 'string' && UUID_RE.test(body.roomId) ? body.roomId : null;
+      const r = id && rooms.get(id);
+      if (r && !r.host) {
+        for (const v of r.viewers.values()) { send(v, { type: 'error', reason: 'sala-inexistente' }); v.close(); }
+        rooms.delete(id);
+      }
+      return json(res, 200, { closed: !!(r && !r.host) });
     }
     if (pathname === '/api/info') {
       const conexao = settings ? {
@@ -194,7 +231,7 @@ export function createServer({
     }
     if (pathname === '/api/settings') {
       if (!settings) return text(res, 404, 'Configuracoes indisponiveis');
-      if (req.method === 'GET') return json(res, 200, settings.publicView());
+      if (req.method === 'GET') return json(res, 200, { ...settings.publicView(), externalPort: externalServer.address()?.port || null });
       if (req.method === 'PUT') {
         const body = await readJson(req);
         try { settings.update(body); } catch (err) { return json(res, 400, { error: err.message }); }
@@ -341,7 +378,11 @@ export function createServer({
           ws.meta = { role: 'host', roomId: msg.roomId, viewerId: null };
           ws.maxPayload = MAX_PAYLOAD_HARD;
           const iceServers = await iceProvider.forSession();
-          return send(ws, { type: 'host-ready', roomId: msg.roomId, iceServers });
+          send(ws, { type: 'host-ready', roomId: msg.roomId, iceServers });
+          // Quem entrou com o link enquanto o painel estava fechado/recarregando ja
+          // esta esperando: conecta agora, sem precisar entrar de novo.
+          for (const viewerId of room.viewers.keys()) send(ws, { type: 'viewer-joined', viewerId });
+          return;
         }
         case 'viewer-join': {
           if (ws.meta.role) return;
@@ -389,6 +430,18 @@ export function createServer({
           // Espectador passou para a conexao direta: para de receber a retransmissao.
           if (ws.meta.role !== 'viewer' || !room) return;
           room.relay.delete(ws);
+          return;
+        }
+        case 'relay-report': {
+          // Atraso de fila que quem assiste mede (ms). So numero, limitado; o host
+          // usa para baixar a banda antes de a imagem travar.
+          if (ws.meta.role !== 'viewer' || !room || !room.relay.has(ws)) return;
+          const qd = Number(msg.qd);
+          if (!Number.isFinite(qd) || qd < 0) return;
+          const now = Date.now();
+          if (now - (ws.lastReport || 0) < 500) return;          // no maximo 2 por segundo
+          ws.lastReport = now;
+          send(room.host, { type: 'relay-report', viewerId: ws.meta.viewerId, qd: Math.min(60_000, Math.round(qd)) });
           return;
         }
         case 'relay-need-key': {
@@ -439,8 +492,11 @@ export function createServer({
       const room = rooms.get(roomId);
       if (!room) return;
       if (role === 'host') {
-        for (const v of room.viewers.values()) send(v, { type: 'host-left' });
-        rooms.delete(roomId);
+        // A sala fica guardada por alguns minutos (sem ninguem dentro): se o painel
+        // for recarregado ou a transmissao recomecar, o mesmo link volta a valer.
+        for (const v of room.viewers.values()) { send(v, { type: 'host-left' }); v.meta = { role: null, roomId: null, viewerId: null }; }
+        room.viewers.clear(); room.relay.clear();
+        if (room.host === ws) { room.host = null; room.hostGoneAt = Date.now(); }
       } else if (role === 'viewer') {
         room.viewers.delete(viewerId);
         room.relay.delete(ws);
@@ -452,7 +508,7 @@ export function createServer({
   const sweeper = setInterval(() => {
     const now = Date.now();
     for (const [id, room] of rooms) {
-      if (!room.host && now - room.createdAt > ORPHAN_ROOM_MS) rooms.delete(id);
+      if (!room.host && now - (room.hostGoneAt || room.createdAt) > ORPHAN_ROOM_MS) rooms.delete(id);
     }
     for (const [ip, e] of ipFailures) if (now > e.resetAt) ipFailures.delete(ip);
     try { settings?.save(); } catch {}
@@ -540,7 +596,8 @@ if (isMain) {
     if (fixedUrl) {
       console.log(`  Endereco publico fixo: ${fixedUrl}`);
     } else if (process.env.TUNNEL !== '0') {
-      manager = new TunnelManager({ port: app.externalPort, dataDir: settings.dir, getChoice: () => settings.data.tunnel || 'auto' });
+      manager = new TunnelManager({ port: app.externalPort, dataDir: settings.dir, getChoice: () => settings.data.tunnel || 'auto',
+        getFixed: () => ({ hostname: settings.data.fixedLink?.hostname || '', token: settings.data.fixedLink?.token ? settings.fixedToken() : null }) });
       let lastUrl = null;
       manager.on('change', (i) => {
         if (i.status === 'on' && i.url !== lastUrl) {

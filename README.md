@@ -81,6 +81,13 @@ Detalhes: [`docs/MODELO-DE-AMEACAS.md`](docs/MODELO-DE-AMEACAS.md), [`docs/AUDIT
 - **Leve por padrão**: usa a placa de vídeo quando possível; sem ela, o codec mais leve. A partir da 3ª pessoa, todos compartilham uma única codificação. Medições e outras opções: [`docs/DESEMPENHO.md`](docs/DESEMPENHO.md).
 - **Som de cada programa**: escolha a **Janela** do programa (Chrome/Edge 141+) e vai só o som dele; dá para **somar o microfone** ou outro dispositivo. Detalhes: [`docs/SOM-POR-PROGRAMA.md`](docs/SOM-POR-PROGRAMA.md).
 
+## Imagem travando? Link mudando?
+
+- **Fluidez**: quem assiste usa um buffer que absorve os engasgos da internet. A imagem segue no ritmo normal, em vez de congelar e depois "correr", e a banda baixa sozinha antes de travar.
+- **Link**: o mesmo link e PIN valem ao recarregar o painel, recomeçar e reabrir o programa. "Gerar link novo" desativa o antigo. O **endereço** gratuito ainda muda quando o programa é reaberto (o serviço sorteia um a cada vez); para um endereço sempre igual, use um domínio próprio (⚙ → Avançado → Link fixo).
+
+Detalhes, medições e o porquê de cada parte do link: [`docs/FLUIDEZ-E-LINK.md`](docs/FLUIDEZ-E-LINK.md).
+
 ## Navegadores
 
 Assistir: **qualquer navegador moderno** (Chrome, Edge, Brave, Opera, Firefox, Safari), inclusive no celular. Transmitir: computador com Chrome, Edge, Brave, Opera, Firefox ou Safari — o **som** do computador só vai junto no Chrome, Edge, Brave e Opera (limitação dos outros navegadores; o painel avisa). No **celular**, um toque mostra/esconde os controles e dois toques põem em tela cheia. **Brave**: funciona sozinho pela retransmissão; para a conexão direta, desative "Bloquear fingerprinting" nos Shields. Tabela completa: [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md).
@@ -105,7 +112,7 @@ Em ⚙ Configurações → **Opções avançadas de conexão** é possível esco
 ## Testes
 
 ```
-npm test                 # 278 testes: unidade, integração, segurança, E2E com navegador real
+npm test                 # 288 testes: unidade, integração, segurança, E2E com navegador real
 npm run test:coverage    # idem, com cobertura mínima obrigatória
 npm run lab              # laboratório de redes isoladas (Linux, root)
 ```
@@ -123,6 +130,7 @@ O **GitHub Actions** roda tudo a cada envio, em Windows, macOS e Linux, e o **la
 | [`docs/PROCESSO-DE-QUALIDADE.md`](docs/PROCESSO-DE-QUALIDADE.md) | Práticas alinhadas a CMMI e ISO, e o que exige auditoria |
 | [`docs/RISCOS-LEGAIS-E-CONTINUIDADE.md`](docs/RISCOS-LEGAIS-E-CONTINUIDADE.md) | Leis, termos dos serviços de link, bloqueios possíveis e plano B |
 | [`docs/DESEMPENHO.md`](docs/DESEMPENHO.md) | Onde o TelaLink gasta processador/memória, o que foi otimizado e outras opções |
+| [`docs/FLUIDEZ-E-LINK.md`](docs/FLUIDEZ-E-LINK.md) | Travadas e "correria" da imagem (o que foi corrigido e medições) e por que o link muda |
 | [`docs/SOM-POR-PROGRAMA.md`](docs/SOM-POR-PROGRAMA.md) | Som só do programa compartilhado, microfone e dispositivos |
 | [`docs/NAVEGADORES.md`](docs/NAVEGADORES.md) | O que funciona em cada navegador e como é testado |
 | [`docs/ESTUDO-APLICATIVO-NATIVO.md`](docs/ESTUDO-APLICATIVO-NATIVO.md) | Estudo (CMMI DAR): aplicativo nativo em Rust/Go/C# × versão web, arquitetura e plano por fases |

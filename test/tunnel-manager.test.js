@@ -166,3 +166,63 @@ describe('Preferencias de transmissao', () => {
     assert.equal(again.data.prefs.quality, 'auto');
   });
 });
+
+// ------------------------------------------------------------------ endereco fixo
+import { NamedTunnel } from '../src/tunnel.js';
+const TOKEN = 'eyJhIjoiMTIzNDU2Nzg5MGFiY2RlZiIsInQiOiJhYmNkZWYtMTIzNC01Njc4LTkwYWItY2RlZjEyMzQ1Njc4IiwicyI6IlpHVm1ZV1ZzZEE9PSJ9';
+
+describe('Endereco fixo (tunel nomeado da Cloudflare)', () => {
+  test('token so pela variavel de ambiente (nunca na linha de comando) e link pronto quando conecta', () => {
+    const t = new NamedTunnel({ port: 8081, bin: '/cf', hostname: 'tela.exemplo.com.br', token: TOKEN, configFile: '/tmp/vazio.yml' });
+    const args = t.args();
+    assert.deepEqual(args, ['tunnel', '--no-autoupdate', '--config', '/tmp/vazio.yml', 'run']);
+    assert.ok(!args.join(' ').includes(TOKEN), 'token fora da lista de processos');
+    assert.equal(t.spawnEnv().TUNNEL_TOKEN, TOKEN);
+    assert.equal(t.parseUrl('2026-11-26T10:00:00Z INF Registered tunnel connection connIndex=0 location=gru01'), 'https://tela.exemplo.com.br');
+    assert.equal(t.parseUrl('INF Starting tunnel'), null);
+    t.protocol = 'http2';
+    assert.ok(t.args().includes('--protocol'));
+  });
+
+  test('gerenciador: usa o endereco e o token salvos; sem eles, explica o que falta', () => {
+    const created = [];
+    let fixed = { hostname: '', token: null };
+    const m = new TunnelManager({
+      port: 8081, dataDir: '/tmp', getChoice: () => 'fixo', getFixed: () => fixed,
+      find: { cloudflare: () => ({ path: '/cf' }), ssh: () => null },
+      create: { 'cloudflare-fixo': (o) => (created.push(o), new FakeTunnel(o)) },
+    });
+    m.start();
+    assert.equal(m.info().status, 'error');
+    assert.match(m.info().error, /sem endereco ou token/);
+    fixed = { hostname: 'tela.exemplo.com.br', token: TOKEN };
+    m.refresh();
+    assert.equal(created.length, 1, 'salvar endereco/token reinicia o tunel');
+    assert.deepEqual([created[0].hostname, created[0].token, created[0].port, created[0].bin], ['tela.exemplo.com.br', TOKEN, 8081, '/cf']);
+    assert.equal(m.info().providerName, 'Cloudflare, endereço fixo');
+    m.refresh();
+    assert.equal(created.length, 1, 'sem mudanca: nao reinicia');
+    m.stop();
+  });
+
+  test('configuracoes: valida endereco e token, guarda o token protegido e mostra so mascarado', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tl-fixo-'));
+    try {
+      const s = new SettingsStore({ dir, platform: 'linux' }).load();
+      assert.throws(() => s.update({ fixedLink: { hostname: 'https://nao valido/' } }), /endereco invalido/);
+      assert.throws(() => s.update({ fixedLink: { token: 'curto' } }), /token/);
+      s.update({ tunnel: 'fixo', fixedLink: { hostname: 'https://Tela.Exemplo.com.br/', token: TOKEN } });
+      assert.equal(s.data.fixedLink.hostname, 'tela.exemplo.com.br');
+      assert.equal(s.fixedToken(), TOKEN);
+      const file = readFileSync(join(dir, 'settings.json'), 'utf8');
+      assert.ok(!file.includes(TOKEN), 'token nao fica em texto puro no arquivo');
+      const pub = s.publicView();
+      assert.ok(!JSON.stringify(pub).includes(TOKEN), 'painel nunca recebe o token inteiro');
+      assert.match(pub.fixedLink.token, /^•+/);
+      s.update({ fixedLink: { hostname: 'tela.exemplo.com.br', token: '' } });
+      assert.equal(s.fixedToken(), TOKEN, 'campo vazio mantem o token');
+      s.update({ fixedLink: { clearToken: true } });
+      assert.equal(s.fixedToken(), null);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});

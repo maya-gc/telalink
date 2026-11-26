@@ -22,11 +22,14 @@ function fill(s) {
   $('stUrls').value = s.turn.static.urls.split(/[\s,]+/).filter(Boolean).join('\n');
   $('stUser').value = s.turn.static.username;
   $('stCredNow').textContent = s.turn.static.credential ? `(atual: ${s.turn.static.credential})` : '(não definida)';
+  $('fxHost').value = s.fixedLink?.hostname || '';
+  $('fxTokenNow').textContent = s.fixedLink?.token ? `(atual: ${s.fixedLink.token})` : '(não definido)';
+  if (s.externalPort) $('extPort').textContent = s.externalPort;
   $('capGB').value = s.capGB ?? '';
   $('usage').textContent = s.usageGB;
   $('storageProt').textContent = s.storage.protection;
   $('storageDir').textContent = `Arquivo de configurações: ${s.storage.dir}`;
-  for (const id of ['cfToken', 'ctSecret', 'stCred']) $(id).value = '';
+  for (const id of ['cfToken', 'ctSecret', 'stCred', 'fxToken']) $(id).value = '';
   renderFields();
   if (s.overCap) show($('msg'), 'warn', 'A trava de consumo foi atingida: TURN pausado até o próximo mês.');
 }
@@ -42,6 +45,7 @@ function collect() {
   return {
     defaultMode: radio('defaultMode'),
     capGB: cap === '' ? null : Number(cap),
+    fixedLink: { hostname: $('fxHost').value.trim(), token: $('fxToken').value.trim() },
     turn: {
       provider: radio('provider'),
       cloudflare: { keyId: $('cfKeyId').value.trim(), apiToken: $('cfToken').value.trim() },

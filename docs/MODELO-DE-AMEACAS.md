@@ -63,4 +63,6 @@
 | localhost.run (túnel SSH padrão) é um serviço gratuito de terceiro que termina o HTTPS e vê metadados | Sem conta nem cartão exige um intermediário | Conteúdo segue cifrado de ponta a ponta (chave no `#`); usar Cloudflare ou domínio próprio se preferir |
 | Primeiro uso do SSH confia na chave do servidor sem verificação prévia (TOFU) | Serviço não publica *fingerprint* fixo | Mudanças posteriores da chave são recusadas |
 | Domínios de túnel gratuitos bloqueados em redes de empresa/escola | Esses domínios são usados em golpes e entram em listas de bloqueio | Domínio próprio (ver `RISCOS-LEGAIS-E-CONTINUIDADE.md`) |
+| Link e PIN guardados no PC de quem transmite (para não mudar a cada transmissão); quem já recebeu o link continua podendo entrar nas próximas | Pedido de uso (link estável) | Só o próprio PC recria ou apaga salas (porta do túnel recusa); "Gerar link novo" e "Novo PIN" desativam o antigo; nada é guardado no repositório |
+| Token do endereço fixo no PC de quem transmite | Necessário para o conector | Criptografado (DPAPI/arquivo 600), passado por variável de ambiente, nunca enviado ao navegador |
 | Conteúdo protegido por DRM sai preto | Decisão do detentor dos direitos | Nenhuma (não contornar) |

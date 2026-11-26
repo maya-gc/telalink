@@ -9,11 +9,12 @@
 //               -> WebSocket binario -> servidor (so repassa, nao decifra)
 //  Espectador:  WebSocket -> AES-256-GCM -> VideoDecoder/AudioDecoder -> tela/som
 // =============================================================================
-import { packPacket, unpackPacket, KIND_VIDEO, KIND_AUDIO, adaptBitrate, relayHeightFor } from './media-util.js';
+import { packPacket, unpackPacket, KIND_VIDEO, KIND_AUDIO, adaptBitrate, relayHeightFor, PlayoutClock } from './media-util.js';
 
 const MAX_W = 1920;
 const MAX_H = 1080;
 const KEY_INTERVAL_MS = 3000;
+const DECODE_LEAD_MS = 15;          // entrega ao decodificador um pouco antes do horario de exibir
 const OPUS_RATES = new Set([8000, 12000, 16000, 24000, 48000]);
 
 // Codecs da retransmissao, do melhor para o mais compativel. Os dois primeiros
@@ -101,11 +102,24 @@ export class RelaySender {
     const r = this.rate, now = performance.now();
     if (r.t) { const dt = (now - r.t) / 1000; r.fps = r.frames / dt; r.bps = (r.bytes * 8) / dt; }
     r.t = now; r.frames = 0; r.bytes = 0;
-    const next = adaptBitrate(this.bitrate, { buffered: this.ws.bufferedAmount, maxBps: this.targetBitrate });
+    const next = adaptBitrate(this.bitrate, { buffered: this.ws.bufferedAmount, queueDelayMs: this.viewerDelay(), maxBps: this.targetBitrate });
     if (Math.abs(next - this.bitrate) / this.bitrate >= 0.07) {
       this.bitrate = next;
       this.reconfigure = true;             // muda so a banda: sem forcar quadro-chave
     }
+  }
+
+  // Atraso de fila informado por quem assiste pela retransmissao (ms).
+  report(viewerId, qd) { (this.reports ||= new Map()).set(viewerId, { qd: Number(qd) || 0, t: performance.now() }); }
+  // Codificacao e uma so para todos: segue a pior pessoa; com 3 ou mais, a segunda
+  // pior (uma conexao muito ruim sozinha nao derruba a qualidade de todos; o
+  // servidor ja descarta quadros so para ela).
+  viewerDelay() {
+    if (!this.reports) return 0;
+    const now = performance.now(), qs = [];
+    for (const [id, r] of this.reports) { if (now - r.t > 3000) this.reports.delete(id); else qs.push(r.qd); }
+    qs.sort((a, b) => b - a);
+    return qs.length >= 3 ? qs[1] : (qs[0] || 0);
   }
 
   // Resolucao maxima atual (no automatico, acompanha a banda disponivel).
@@ -380,7 +394,36 @@ export class RelayReceiver {
     this.lastSeq = { [KIND_VIDEO]: -1, [KIND_AUDIO]: -1 };
     this.gotKey = false;
     this.playAt = 0;
-    this.stats = { framesDecoded: 0, audioDecoded: 0, rejected: 0, dropped: 0, bytes: 0 };
+    this.stats = { framesDecoded: 0, audioDecoded: 0, rejected: 0, dropped: 0, bytes: 0, late: 0 };
+    // Buffer de reproducao: os pacotes de video esperam aqui ate o horario
+    // deles (captura + atraso adaptativo) e so entao vao para o decodificador.
+    // Video e som usam o MESMO atraso (sincronia labial).
+    this.vclock = new PlayoutClock();
+    this.aclock = new PlayoutClock();
+    this.vq = [];
+    this.presented = [];                 // horarios em que cada quadro apareceu (suavidade)
+    this.qdSamples = [];
+    this._pump = this._pump.bind(this);
+    this.pumpTimer = null;
+    this.reportTimer = setInterval(() => this._report(), 1000);
+  }
+
+  // Atraso atual do buffer e atraso de fila medido (para o painel e o diagnostico).
+  get playout() { return { delayMs: Math.round(this.vclock.delay), queueDelayMs: Math.round(this.vclock.queueDelay), queued: this.vq.length }; }
+
+  _syncDelay() {
+    const d = Math.max(this.vclock.delay, this.aclock.delay);
+    this.vclock.delay = d; this.aclock.delay = d;
+  }
+
+  // Conta a quem transmite quanto atraso de fila esta chegando aqui (pior caso do
+  // ultimo segundo). E o que faz a banda baixar ANTES de travar.
+  _report() {
+    if (!this.qdSamples.length) return;
+    const s = this.qdSamples.sort((a, b) => a - b);
+    const p90 = s[Math.floor(s.length * 0.9)];
+    this.qdSamples = [];
+    this.ws.json?.({ type: 'relay-report', qd: Math.round(p90) });
   }
 
   async handle(bytes) {
@@ -397,10 +440,41 @@ export class RelayReceiver {
 
   _needKey() {
     this.gotKey = false;
+    const k = this.vq.findIndex((e) => e.pkt.isKey);
+    this.vq = k >= 0 ? this.vq.slice(k) : [];
     this.ws.json?.({ type: 'relay-need-key' });
   }
 
   _video(pkt) {
+    const now = performance.now();
+    const due = this.vclock.arrive(pkt.timestamp, now);
+    this.qdSamples.push(this.vclock.queueDelay);
+    this._syncDelay();
+    // Fila absurda (aba em segundo plano, PC travado): recomeca do proximo quadro-chave.
+    if (this.vq.length > 400) { this.vq = []; this.stats.dropped++; this._needKey(); }
+    this.vq.push({ pkt, due });
+    this._schedule();
+  }
+
+  _schedule() {
+    if (this.pumpTimer || !this.vq.length) return;
+    const wait = Math.max(0, this.vq[0].due - DECODE_LEAD_MS - performance.now());
+    this.pumpTimer = setTimeout(this._pump, Math.min(wait, 250));
+  }
+
+  // Entrega ao decodificador os pacotes cujo horario chegou.
+  _pump() {
+    this.pumpTimer = null;
+    const now = performance.now();
+    while (this.vq.length && this.vq[0].due - DECODE_LEAD_MS <= now) {
+      const { pkt, due } = this.vq.shift();
+      if (now - due > 400) this.stats.late++;
+      this._decodeVideo(pkt);
+    }
+    this._schedule();
+  }
+
+  _decodeVideo(pkt) {
     if (pkt.isKey && pkt.meta) {
       const cfg = pkt.meta;
       if (!this.vdec || this.vdec.state === 'closed' || !this.vcfg || this.vcfg.codec !== cfg.codec || this.vcfg.w !== cfg.w || this.vcfg.h !== cfg.h) {
@@ -413,6 +487,8 @@ export class RelayReceiver {
               }
               this.ctx2d.drawImage(frame, 0, 0);
               this.stats.framesDecoded++;
+              this.presented.push(performance.now());
+              if (this.presented.length > 900) this.presented.splice(0, 300);
             } finally { frame.close(); }
           },
           error: (e) => { this.onError(e); this.vdec = null; this._needKey(); },
@@ -423,13 +499,16 @@ export class RelayReceiver {
       this.gotKey = true;
     }
     if (!this.gotKey || !this.vdec || this.vdec.state !== 'configured') return;
-    if (!pkt.isKey && this.vdec.decodeQueueSize > 8) { this.stats.dropped++; this._needKey(); return; } // PC lento
+    // Entregue no ritmo certo, a fila do decodificador fica pequena; se crescer, o PC nao da conta.
+    if (!pkt.isKey && this.vdec.decodeQueueSize > 12) { this.stats.dropped++; this._needKey(); return; }
     try {
       this.vdec.decode(new EncodedVideoChunk({ type: pkt.isKey ? 'key' : 'delta', timestamp: pkt.timestamp, duration: pkt.duration || undefined, data: pkt.data }));
     } catch (e) { this.onError(e); this._needKey(); }
   }
 
   _audio(pkt) {
+    this.aclock.arrive(pkt.timestamp, performance.now());
+    this._syncDelay();
     if (!this.audioCtx || typeof globalThis.AudioDecoder !== 'function' || !pkt.meta) return;
     if (!this.adec || this.adec.state === 'closed') {
       this.adec = new AudioDecoder({
@@ -455,16 +534,21 @@ export class RelayReceiver {
     src.buffer = buf;
     src.connect(this.gain || ctx.destination);
     const now = ctx.currentTime;
-    // Pequeno buffer (~150 ms) absorve variacoes da rede sem atrasar demais.
-    if (this.playAt < now + 0.03 || this.playAt > now + 0.6) this.playAt = now + 0.15;
+    // Mesmo horario do video: captura + atraso do buffer (sincronia labial).
+    const target = now + (this.aclock.due(ad.timestamp) - performance.now()) / 1000;
+    const drift = this.playAt - target;
+    if (this.playAt < now + 0.02 || Math.abs(drift) > 0.12) this.playAt = Math.max(now + 0.02, target);
+    else if (drift > 0.03) src.playbackRate.value = 1.02;      // um pouco atrasado: acelera 2% (inaudivel)
+    else if (drift < -0.03) src.playbackRate.value = 0.98;
     src.start(this.playAt);
-    this.playAt += buf.duration;
+    this.playAt += buf.duration / src.playbackRate.value;
     this.stats.audioDecoded++;
   }
 
   setVolume(v) { if (this.gain) this.gain.gain.value = Math.max(0, Math.min(1, v)); }
 
   close() {
+    clearTimeout(this.pumpTimer); clearInterval(this.reportTimer); this.vq = [];
     for (const d of [this.vdec, this.adec]) try { if (d && d.state !== 'closed') d.close(); } catch {}
     this.vdec = this.adec = null;
   }

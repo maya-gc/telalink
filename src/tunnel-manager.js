@@ -3,15 +3,16 @@
 //    auto       -> Cloudflare se estiver instalado (assinatura verificada);
 //                  senao SSH do proprio Windows (nao precisa instalar nada)
 //    cloudflare -> so Cloudflare      ssh -> so SSH      off -> sem link externo
+//    fixo       -> endereco fixo (tunel nomeado da Cloudflare: dominio + token)
 //  O tunel sempre aponta para a PORTA EXTERNA do TelaLink (tudo ali e externo).
 // =============================================================================
 import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { Tunnel, SshTunnel, findCloudflared, findSsh, WINGET_ID } from './tunnel.js';
+import { Tunnel, SshTunnel, NamedTunnel, findCloudflared, findSsh, WINGET_ID } from './tunnel.js';
 
-export const TUNNEL_CHOICES = ['auto', 'cloudflare', 'ssh', 'off'];
-export const PROVIDER_NAMES = { cloudflare: 'Cloudflare', ssh: 'SSH (localhost.run)' };
+export const TUNNEL_CHOICES = ['auto', 'cloudflare', 'ssh', 'fixo', 'off'];
+export const PROVIDER_NAMES = { cloudflare: 'Cloudflare', ssh: 'SSH (localhost.run)', 'cloudflare-fixo': 'Cloudflare, endereço fixo' };
 
 // Configuracao vazia do cloudflared, so do TelaLink.
 export function isolatedConfig(dataDir) {
@@ -25,14 +26,16 @@ export function isolatedConfig(dataDir) {
 export class TunnelManager extends EventEmitter {
   constructor({
     port, dataDir, getChoice = () => 'auto', log = () => {},
+    getFixed = () => ({ hostname: '', token: null }),
     find = { cloudflare: () => findCloudflared(), ssh: () => findSsh() },
     create = {
       cloudflare: (o) => new Tunnel({ ...o, configFile: isolatedConfig(dataDir) }),
       ssh: (o) => new SshTunnel({ ...o, knownHostsFile: join(dataDir, 'known_hosts') }),
+      'cloudflare-fixo': (o) => new NamedTunnel({ ...o, configFile: isolatedConfig(dataDir) }),
     },
   }) {
     super();
-    Object.assign(this, { port, dataDir, getChoice, log, find, create });
+    Object.assign(this, { port, dataDir, getChoice, getFixed, log, find, create });
     this.tunnel = null;
     this.provider = null;
     this.state = { status: 'off', url: null, error: null };
@@ -49,6 +52,13 @@ export class TunnelManager extends EventEmitter {
         : { provider: null, error: this.lastFindError || `Cloudflare nao instalado (winget install --id ${WINGET_ID} -e)` };
     }
     if (choice === 'ssh') return tryFind('ssh') ? { provider: 'ssh' } : { provider: null, error: 'SSH do Windows nao encontrado' };
+    if (choice === 'fixo') {
+      let fixed;
+      try { fixed = this.getFixed(); } catch (err) { return { provider: null, error: `token do endereco fixo nao abriu: ${err.message}` }; }
+      if (!fixed?.hostname || !fixed?.token) return { provider: null, error: 'endereco fixo sem endereco ou token (veja Configuracoes avancadas)' };
+      return tryFind('cloudflare') ? { provider: 'cloudflare-fixo', fixed }
+        : { provider: null, error: this.lastFindError || `Cloudflare nao instalado (winget install --id ${WINGET_ID} -e)` };
+    }
     // auto
     if (tryFind('cloudflare')) return { provider: 'cloudflare' };
     if (tryFind('ssh')) return { provider: 'ssh' };
@@ -58,16 +68,17 @@ export class TunnelManager extends EventEmitter {
   start() {
     this.stop();
     const choice = this.getChoice();
-    const { provider, error } = this._pick(choice);
+    const { provider, error, fixed } = this._pick(choice);
     this.choice = choice;
+    this.choiceKey = this._choiceKey(choice);
     if (!provider) {
       this.state = { status: choice === 'off' ? 'off' : 'error', url: null, error };
       this.emit('change', this.info());
       return;
     }
-    const found = this.find[provider]();
+    const found = this.find[provider === 'cloudflare-fixo' ? 'cloudflare' : provider]();
     this.provider = provider;
-    const t = this.create[provider]({ port: this.port, bin: found.path, log: this.log });
+    const t = this.create[provider]({ port: this.port, bin: found.path, log: this.log, ...(fixed || {}) });
     this.tunnel = t;
     t.on('url', () => this.emit('change', this.info()));
     t.on('restart', () => this.emit('change', this.info()));
@@ -78,7 +89,10 @@ export class TunnelManager extends EventEmitter {
   }
 
   // Reinicia se a escolha mudou (chamado quando as configuracoes sao salvas).
-  refresh() { if (this.getChoice() !== this.choice) this.start(); }
+  // (no endereco fixo, tambem se o endereco ou o token mudaram).
+  refresh() { if (this._choiceKey(this.getChoice()) !== this.choiceKey) this.start(); }
+  _choiceKey(choice) { return choice === 'fixo' ? `fixo:${this._fixedKey()}` : choice; }
+  _fixedKey() { try { const f = this.getFixed(); return `${f?.hostname}|${f?.token ? f.token.length : 0}|${f?.token?.slice(-6) || ''}`; } catch { return 'erro'; } }
 
   info() {
     const base = this.tunnel ? this.tunnel.info() : this.state;

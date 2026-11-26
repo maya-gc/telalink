@@ -1,5 +1,25 @@
 # Histórico de versões
 
+## 2.8.0 — 2026-11-26
+
+### Corrigido
+- **Filmes "travando, acelerando e depois mostrando"** para quem assiste. Ver `docs/FLUIDEZ-E-LINK.md`.
+  - Retransmissão: novo buffer de reprodução, com quadros no horário de captura e atraso adaptativo; o som usa o mesmo atraso.
+  - Numa rede que engasga 700 ms a cada ~4 s: antes 3 congelamentos e 30 quadros "correndo" em 15 s; agora só o primeiro engasgo e nenhuma correria.
+- A banda da retransmissão não baixava com internet/túnel lento. Agora quem assiste informa o atraso medido.
+- Rajadas de quadros não fazem mais o decodificador descartar tudo até o próximo quadro-chave.
+- Conexão direta: buffer de recepção de 200 ms, que sobe sozinho até 600 ms se a imagem congelar.
+- Conexão direta: conteúdo em movimento mantém os quadros por segundo e baixa a resolução quando falta banda.
+
+### Novo
+- **Mesmo link e PIN** ao recarregar o painel, encerrar e começar de novo ou reabrir o programa.
+  - Quem assiste toca em "Entrar de novo".
+  - Quem abrir o link com o painel fechado entra sozinho quando a transmissão recomeça.
+- **Gerar link novo** desativa o link antigo na hora.
+- **Endereço fixo** opcional com domínio próprio (túnel nomeado da Cloudflare): ⚙ → Avançado → Link fixo. O token fica criptografado e fora da linha de comando.
+- O diagnóstico de quem assiste inclui a fluidez e o atraso do buffer.
+- Testes `fluidez.test.js` (rede ruim simulada, `bench/rede-ruim.mjs`) e `link.test.js`.
+
 ## 2.7.0 — 2026-11-08
 
 ### Corrigido

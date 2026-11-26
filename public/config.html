@@ -82,6 +82,20 @@
     <small class="hint">Ao atingir o limite, o TURN é pausado até o próximo mês e as pessoas passam a usar a retransmissão pelo link. A estimativa é conservadora (conta o dobro).</small>
   </div>
 
+  <div class="card">
+    <h2>Link fixo (opcional)</h2>
+    <p class="hint" style="margin-top:0">Sem isto, o endereço do link muda toda vez que o TelaLink é aberto: os serviços gratuitos de link (Cloudflare rápido, localhost.run) sorteiam um endereço novo a cada vez. Com um <b>domínio seu</b> (ex.: <code>tela.seudominio.com.br</code>) e uma conta gratuita na Cloudflare, o link fica <b>sempre o mesmo</b>.</p>
+    <ol class="hint">
+      <li>No painel da Cloudflare: <b>Zero Trust → Networks → Tunnels → Create a tunnel</b> (tipo <i>Cloudflared</i>).</li>
+      <li>Em <b>Public Hostname</b>, aponte o seu endereço para <code>http://localhost:<span id="extPort">8081</span></code> (a porta externa do TelaLink — nunca a do painel).</li>
+      <li>Copie o <b>token</b> que a Cloudflare mostra no comando de instalação (o texto longo depois de <code>--token</code>) e cole abaixo. Não precisa rodar o comando.</li>
+      <li>Em ⚙ Configurações do painel, escolha <b>Link externo → Endereço fixo</b>.</li>
+    </ol>
+    <label class="field"><span>Endereço</span><input id="fxHost" type="text" class="mono" autocomplete="off" placeholder="tela.seudominio.com.br" /></label>
+    <label class="field"><span>Token do túnel <small id="fxTokenNow"></small></span><input id="fxToken" type="password" class="mono" autocomplete="new-password" placeholder="cole para definir ou trocar" /></label>
+    <small class="hint">O token fica criptografado neste computador e não aparece na lista de processos. A conta e o túnel são grátis; o domínio é pago à parte (um .com.br custa cerca de R$ 40/ano).</small>
+  </div>
+
   <div class="row">
     <button id="btnSave">Salvar</button>
     <button id="btnTest" class="ghost">Testar conexão</button>

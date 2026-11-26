@@ -40,6 +40,9 @@ Legenda: **RF** funcional · **RS** segurança · **RD** desempenho/robustez · 
 | RF-31 | Somar microfone ou dispositivo de som, com volume e liga/desliga ao vivo | `som.test.js` |
 | RF-32 | Brave/WebRTC restrito em qualquer lado: imagem em poucos segundos pela retransmissão, conexão direta mantida quando possível, aviso no painel | `brave.test.js` |
 | RF-33 | Quem assiste vê as etapas da conexão, o que fazer quando trava e pode copiar um diagnóstico sem segredos | `brave.test.js` |
+| RF-35 | Imagem em ritmo constante mesmo com a rede engasgando: sem congelar e "correr" depois (buffer de reprodução, banda pelo atraso medido por quem assiste, buffer maior na conexão direta) | `fluidez.test.js`, `media.test.js` › fluidez |
+| RF-36 | Mesmo link e PIN entre recarregar, recomeçar e reabrir o programa; quem assiste entra de novo; "Gerar link novo" desativa o antigo | `link.test.js`, `server.test.js`, `acesso.test.js` |
+| RF-37 | Endereço fixo opcional (túnel nomeado da Cloudflare) com token protegido, fora da linha de comando | `tunnel-manager.test.js` › Endereço fixo |
 | RF-34 | Celular: um toque mostra/esconde os controles, dois toques = tela cheia, botões do tamanho do dedo, área segura do iPhone, paisagem na tela cheia | `celular.test.js` |
 | RD-07 | Processador não cresce além de N codificações (codificação compartilhada); codec leve por padrão | `bench/navegador.mjs`, `media.test.js` › codecs |
 | RD-08 | Servidor: limites de processador, memória e coleta de lixo com 10 pessoas a 8 Mbps/60 qps | `desempenho.test.js` |

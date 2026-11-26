@@ -84,7 +84,7 @@ test('tela preta: so avisa depois de 4 amostras seguidas e avisa quando volta', 
 });
 
 import { QUALITY, captureConstraints, senderEncoding, gainFor, fitRect, inviteText, qualityPreset, BITRATE_OPTIONS, maxKbpsFor,
-  degradationFor, withBitrateHints, orderCodecs, adaptBitrate, relayHeightFor, qualityText } from '../public/media-util.js';
+  degradationFor, withBitrateHints, orderCodecs, adaptBitrate, relayHeightFor, qualityText, PlayoutClock, smoothness } from '../public/media-util.js';
 import { QUALITIES as QUALITY_KEYS_SERVER, BITRATES as BITRATES_SERVER } from '../src/settings.js';
 
 test('qualidade: predefinicoes ate 4K e restricoes de captura coerentes', () => {
@@ -111,9 +111,10 @@ test('qualidade: envio sempre tem teto de banda e reduz escala so quando a fonte
 });
 
 test('qualidade: o que cortar primeiro quando falta internet', () => {
-  assert.equal(degradationFor('auto', 'motion'), 'balanced');
+  assert.equal(degradationFor('auto', 'motion'), 'maintain-framerate', 'filmes/jogos: ritmo constante');
   assert.equal(degradationFor('auto', 'detail'), 'maintain-resolution');
-  assert.equal(degradationFor('alta', 'motion'), 'maintain-resolution', 'resolucao escolhida pelo usuario e mantida');
+  assert.equal(degradationFor('alta', 'motion'), 'balanced', 'resolucao escolhida a mao: meio-termo');
+  assert.equal(degradationFor('alta', 'detail'), 'maintain-resolution');
 });
 
 const SDP = ['v=0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2', 'a=fmtp:111 minptime=10;useinbandfec=1',
@@ -144,8 +145,12 @@ test('codecs: hardware primeiro; sem hardware, "leve" prefere H.264 e "nitidez" 
 
 test('retransmissao: banda adaptativa (reduz rapido, sobe devagar) e resolucao conforme a banda', () => {
   assert.equal(adaptBitrate(8e6, { buffered: 2e6, maxBps: 8e6 }), 5.6e6);
-  assert.equal(adaptBitrate(8e6, { buffered: 5e5, maxBps: 8e6 }), 7.2e6);
+  assert.equal(adaptBitrate(8e6, { buffered: 5e5, maxBps: 8e6 }), 6.8e6);
   assert.equal(adaptBitrate(4e6, { buffered: 0, maxBps: 8e6 }), 4.32e6);
+  // Atraso medido por quem assiste (tunel/internet lenta), mesmo com a fila local vazia.
+  assert.equal(adaptBitrate(8e6, { buffered: 0, queueDelayMs: 900, maxBps: 8e6 }), 5.6e6, 'atraso grande: reduz rapido');
+  assert.equal(adaptBitrate(8e6, { buffered: 0, queueDelayMs: 300, maxBps: 8e6 }), 6.8e6);
+  assert.equal(adaptBitrate(4e6, { buffered: 0, queueDelayMs: 120, maxBps: 8e6 }), 4e6, 'algum atraso: nao sobe');
   assert.equal(adaptBitrate(8e6, { buffered: 0, maxBps: 8e6 }), 8e6, 'nunca passa do teto');
   assert.equal(adaptBitrate(6e5, { buffered: 5e6, maxBps: 8e6 }), 5e5, 'nunca abaixo do minimo');
   assert.equal(adaptBitrate(5e6, { buffered: 2e5, maxBps: 8e6 }), 5e6, 'zona estavel');
@@ -175,4 +180,46 @@ test('imagens: encaixe sem distorcer (retrato e paisagem)', () => {
 
 test('convite: link e PIN prontos para colar', () => {
   assert.equal(inviteText('https://x/view?room=1#k=abc', '123456'), 'Assista minha tela pelo TelaLink:\nhttps://x/view?room=1#k=abc\nPIN: 123456');
+});
+
+test('fluidez: buffer de reproducao absorve engasgos no ritmo normal (sem congelar e correr)', () => {
+  const c = new PlayoutClock({ startDelay: 150 });
+  const fps = 30, step = 1000 / fps;
+  const shown = [];
+  // 10 s de quadros; a rede segura tudo por 700 ms aos 3 s e solta de uma vez.
+  let t = 1000;
+  const arrivals = [];
+  for (let i = 0; i < 300; i++) {
+    const cap = i * step;
+    let arr = t + cap + 20;
+    if (cap >= 3000 && cap < 3700) arr = t + 3700 + 20 + (cap - 3000) * 0.05;   // rajada
+    arrivals.push([cap, arr]);
+  }
+  for (const [cap, arr] of arrivals) shown.push(Math.max(arr, c.arrive(cap * 1000, arr)));
+  shown.sort((a, b) => a - b);
+  const after = smoothness(shown.filter((x) => x > t + 4500));
+  assert.equal(after.freezes, 0, 'depois do primeiro engasgo, nada congela');
+  assert.equal(after.bursts, 0, 'nao corre para alcancar');
+  assert.ok(c.delay >= 700 && c.delay <= 1200, `atraso cresceu para cobrir o engasgo (${c.delay})`);
+  // Rede estavel por 60 s: o atraso volta a cair devagar.
+  const d0 = c.delay;
+  for (let i = 300; i < 2100; i++) c.arrive(i * step * 1000, t + i * step + 20);
+  assert.ok(c.delay < d0 - 300 && c.delay >= c.minDelay, `atraso diminui com a rede estavel (${d0} -> ${c.delay})`);
+});
+
+test('fluidez: relogio recomeca quando os horarios saltam (fonte trocada)', () => {
+  const c = new PlayoutClock();
+  for (let i = 0; i < 50; i++) c.arrive(i * 33_333, 1000 + i * 33.3);
+  c.arrive(5_000, 1000 + 51 * 33.3);           // horarios voltaram para perto de zero
+  assert.ok(c.delay < 400, `nao confunde salto com atraso da rede (${c.delay})`);
+});
+
+test('fluidez: medida de suavidade detecta congelamento e correria', () => {
+  const smooth = Array.from({ length: 60 }, (_, i) => i * 33);
+  assert.deepEqual([smoothness(smooth).freezes, smoothness(smooth).bursts], [0, 0]);
+  const bad = [...Array.from({ length: 30 }, (_, i) => i * 33), ...Array.from({ length: 20 }, (_, i) => 990 + 700 + i * 2)];
+  const r = smoothness(bad);
+  assert.equal(r.freezes, 1);
+  assert.ok(r.bursts >= 9, 'quadros colados depois da pausa');
+  assert.ok(r.frozenMs > 600);
 });

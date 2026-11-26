@@ -6,7 +6,7 @@
 import { $, show, getStats, openSocket, describeTransport, TRANSPORT_LABEL, caps, newAudioContext, enterFullscreen, exitFullscreen, isFullscreen } from './common.js';
 import { keyFromHash, deriveKeys, SecureChannel } from './crypto.js';
 import { RelayReceiver, decodableCodecs } from './relay.js';
-import { qualityText } from './media-util.js';
+import { qualityText, smoothness } from './media-util.js';
 
 const P2P_TIMEOUT_MS = 12_000;   // limite absoluto para a conexao direta/TURN
 const PRFLX_GRACE_MS = 2_500;   // quem transmite sem caminhos: espera a direta sair pelos caminhos daqui
@@ -27,12 +27,59 @@ let transport = 'conectando';
 
 // Diagnostico de conexao (sem segredos): tipos de candidatos e estados.
 const diag = { local: [], remote: [], states: [], pairs: null };
+// ------------------------------------------------------------ fluidez
+// Conexao direta: o navegador tem seu proprio buffer, que por padrao e minimo
+// (pensado para chamadas). Em filmes, qualquer engasgo da rede virava imagem
+// parada e depois "corrida". Comeca com 200 ms e, se a imagem congelar, aumenta
+// sozinho (ate 600 ms). Video e som recebem o mesmo valor (sincronia labial).
+const JITTER_START_MS = 200, JITTER_MAX_MS = 600;
+let jitterTargetMs = JITTER_START_MS;
+const directReceivers = new Set();
+function applyJitterTarget() {
+  for (const r of directReceivers) {
+    try {
+      if ('jitterBufferTarget' in r) r.jitterBufferTarget = jitterTargetMs;
+      else if ('playoutDelayHint' in r) r.playoutDelayHint = jitterTargetMs / 1000;   // Chrome antigo
+    } catch {}
+  }
+}
+// Horarios em que cada quadro da conexao direta apareceu (requestVideoFrameCallback).
+let directFrames = [];
+function watchDirectFrames(v) {
+  if (watchDirectFrames.on || !v.requestVideoFrameCallback) return;
+  watchDirectFrames.on = true;
+  let lastFreezeCheck = 0;
+  const tick = (now) => {
+    directFrames.push(now);
+    if (directFrames.length > 900) directFrames.splice(0, 300);
+    const n = directFrames.length;
+    // Congelou (> 400 ms sem quadro novo, com a aba visivel)? Aumenta o buffer.
+    if (n > 2 && now - directFrames[n - 2] > 400 && document.visibilityState === 'visible' && now - lastFreezeCheck > 3000 && jitterTargetMs < JITTER_MAX_MS) {
+      lastFreezeCheck = now;
+      jitterTargetMs = Math.min(JITTER_MAX_MS, jitterTargetMs + 150);
+      diag.states.push(`buffer-${jitterTargetMs}ms`);
+      applyJitterTarget();
+    }
+    v.requestVideoFrameCallback(tick);
+  };
+  v.requestVideoFrameCallback(tick);
+}
+// Suavidade dos ultimos ~10 s (congelamentos, "correrias", variacao do ritmo).
+function currentSmoothness() {
+  const times = transport === 'retransmissao' ? (receiver?.presented || []) : directFrames;
+  const cut = performance.now() - 10_000;
+  return smoothness(times.filter((t) => t >= cut));
+}
+
 window.__telalink = {
   get transport() { return transport; },
   get reconnecting() { return retry > 0; },
   get stats() { return receiver ? { ...receiver.stats } : null; },
   get diag() { return diag; },
   quality: () => measureQuality(),
+  smoothness: () => currentSmoothness(),
+  jitterTargets: () => [...directReceivers].map((r) => r.jitterBufferTarget ?? (r.playoutDelayHint != null ? r.playoutDelayHint * 1000 : null)),
+  playout: () => (transport === 'retransmissao' ? receiver?.playout : { delayMs: jitterTargetMs }),
   // Quadros recebidos (decodificados) ate agora, em qualquer navegador.
   async framesReceived() {
     if (transport === 'retransmissao') return receiver?.stats.framesDecoded || 0;
@@ -155,7 +202,8 @@ function diagnostic() {
     telalink: 'diagnostico', navegador: caps.name, celular: caps.mobile, transporte: transport, etapas: stepTime, situacao: stepState,
     recursos: { webrtc: caps.webrtc, retransmissao: caps.relayDecode, somRetransmissao: caps.relayAudio },
     rede: { local: diag.local, remoto: diag.remote, estados: diag.states, pares: diag.pairs },
-    quadros: receiver?.stats?.framesDecoded ?? null, quando: new Date().toISOString(),
+    quadros: receiver?.stats?.framesDecoded ?? null, fluidez: currentSmoothness(),
+    buffer: transport === 'retransmissao' ? receiver?.playout : { delayMs: jitterTargetMs }, quando: new Date().toISOString(),
   });
 }
 $('btnDiag').onclick = async () => {
@@ -172,7 +220,9 @@ async function openAndJoin() {
     onBinary: (bytes) => receiver?.handle(bytes),
     onClose: () => onSocketClosed(sock),
   });
+  const previous = ws;
   ws = sock;
+  try { previous?.close(); } catch {}
   try { await sock.opened; } catch { step('link', 'err'); return stuck('link'); }
   step('link', 'ok'); step('pin', 'pending');
   sock.json({ type: 'viewer-join', roomId, pin: joinedPin });
@@ -252,8 +302,13 @@ async function onMessage(m) {
     cleanup();
     $('stage').classList.remove('on');
     $('gate').style.display = '';
-    $('btnJoin').disabled = true;
-    show($('gateMsg'), 'err', 'A transmissão foi encerrada.');
+    // O link continua o mesmo se quem transmite recomecar (recarregar o painel,
+    // encerrar e comecar de novo): da para entrar de novo sem pedir outro link.
+    ended = false; viewerId = null; retry = 0;
+    if (joinedPin) $('pin').value = joinedPin;
+    $('btnJoin').disabled = false;
+    $('btnJoin').textContent = 'Entrar de novo';
+    show($('gateMsg'), 'warn', 'A transmissão foi encerrada. Se quem transmite recomeçar, toque em "Entrar de novo" — o link e o PIN continuam os mesmos.');
   }
 }
 
@@ -316,6 +371,9 @@ function createPeer() {
   pc.ontrack = (e) => {
     const v = $('remote');
     if (v.srcObject !== e.streams[0]) v.srcObject = e.streams[0];
+    directReceivers.add(e.receiver);
+    applyJitterTarget();
+    watchDirectFrames(v);
   };
   pc.onicecandidate = (e) => {
     if (e.candidate) { localCandidates++; diag.local.push(candType(e.candidate)); sendSig({ kind: 'ice', candidate: e.candidate.toJSON() }); }

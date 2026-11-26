@@ -190,14 +190,37 @@ describe('Sinalizacao', () => {
     host.close();
   });
 
-  test('quando o host sai, viewers sao avisados e a sala some', async () => {
+  test('quando o host sai, viewers sao avisados; o mesmo link volta a valer quando ele recomeca', async () => {
     const { room, host, viewer } = await roomWithViewer(app);
     host.close();
     assert.equal((await viewer.next()).type, 'host-left');
+    // Quem chega com o link enquanto o painel esta fechado fica esperando...
     const late = wsClient(app.ws); await late.opened;
     late.json({ type: 'viewer-join', roomId: room.roomId, pin: room.pin });
-    assert.equal((await late.next()).reason, 'sala-inexistente');
-    viewer.close(); late.close();
+    const acc = await late.next();
+    assert.equal(acc.type, 'viewer-accepted');
+    // ...e o painel, ao recomecar com a mesma sala e PIN, recebe essa pessoa na hora.
+    const again = await (await fetch(`${app.base}/api/create-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roomId: room.roomId, pin: room.pin }) })).json();
+    assert.deepEqual([again.roomId, again.reused], [room.roomId, true]);
+    const h2 = wsClient(app.ws); await h2.opened;
+    h2.json({ type: 'host-join', roomId: room.roomId });
+    assert.equal((await h2.next()).type, 'host-ready');
+    assert.deepEqual(await h2.next(), { type: 'viewer-joined', viewerId: acc.viewerId });
+    viewer.close(); late.close(); h2.close();
+  });
+
+  test('reaproveitar sala: PIN errado, sala em uso ou id invalido geram sala nova', async () => {
+    const { room, host } = await roomWithViewer(app);
+    const post = (body) => fetch(`${app.base}/api/create-room`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+    const inUse = await post({ roomId: room.roomId, pin: room.pin });
+    assert.notEqual(inUse.roomId, room.roomId, 'sala com transmissao ativa nao e entregue a outra aba');
+    host.close(); await new Promise((r) => setTimeout(r, 50));
+    const wrongPin = await post({ roomId: room.roomId, pin: room.pin === '111111' ? '222222' : '111111' });
+    assert.notEqual(wrongPin.roomId, room.roomId, 'PIN diferente: sala nova');
+    const bad = await post({ roomId: '../../etc', pin: '123456' });
+    assert.equal(bad.reused, false);
+    const gone = await post({ roomId: '00000000-0000-4000-8000-000000000000', pin: '654321' });
+    assert.deepEqual([gone.roomId, gone.pin, gone.reused], ['00000000-0000-4000-8000-000000000000', '654321', true], 'programa reaberto: recria a sala com o mesmo id e PIN');
   });
 
   test('lixo e JSON invalido sao ignorados sem derrubar a conexao', async () => {

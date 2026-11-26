@@ -64,7 +64,7 @@ describe('Qualidade da imagem (navegador real)', { skip, timeout: 240_000 }, () 
     await v.page.waitForFunction((src) => document.getElementById('remote').videoHeight >= src, src, { timeout: 8_000 });
     const s = (await sending(h))[0];
     assert.equal(s.maxBitrate, 8_000_000, 'teto de banda do automatico');
-    assert.equal(s.degradation, 'balanced');
+    assert.equal(s.degradation, 'maintain-framerate');
     // O indicador mostra a resolucao para quem assiste e para quem transmite.
     // (compara o numero: em telas Retina a altura real pode passar um pouco da informada)
     const shown = (sel) => (sel === 'v' ? v.page : h.page).evaluate((q) => +(/(\d+)p/.exec(document.querySelector(q)?.textContent || '') || [])[1] || 0,
@@ -87,7 +87,7 @@ describe('Qualidade da imagem (navegador real)', { skip, timeout: 240_000 }, () 
     const s = (await sending(h))[0];
     assert.equal(s.height, 720, `altura enviada ${JSON.stringify(s)}`);
     assert.equal(s.maxBitrate, 4_000_000);
-    assert.equal(s.degradation, 'maintain-resolution');
+    assert.equal(s.degradation, 'balanced');
     const seen = [];
     const end = Date.now() + 15_000;
     while (Date.now() < end) {

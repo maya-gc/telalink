@@ -71,7 +71,7 @@ Para não depender de serviços "de teste", o caminho recomendado é um **túnel
 
 1. Crie a conta gratuita na Cloudflare e adicione seu domínio.
 2. Em **Zero Trust → Networks → Tunnels**, crie um túnel e aponte um nome (ex.: `tela.seudominio.com.br`) para **`http://localhost:8081`** — a **porta externa** do TelaLink (nunca a 8080, que é a do painel).
-3. Rode o conector que a Cloudflare indica e inicie o TelaLink com `PUBLIC_URL=https://tela.seudominio.com.br` e `TUNNEL=0`.
+3. Copie o **token** do túnel e cole em ⚙ → Avançado → **Link fixo**, junto com o endereço; depois escolha *Link externo → Endereço fixo*. O TelaLink roda o conector sozinho. Alternativa manual: rode o conector e inicie com `PUBLIC_URL=https://tela.seudominio.com.br` e `TUNNEL=0`.
 
 ## 7. Uso responsável (resumo para quem usa)
 

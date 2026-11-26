@@ -121,7 +121,7 @@ export class Tunnel extends EventEmitter {
     this.url = null;
     let child;
     try {
-      child = spawn(this.bin, this.args(), { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+      child = spawn(this.bin, this.args(), { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, ...(this.spawnEnv ? { env: this.spawnEnv() } : {}) });
       if (child.pid) lowerPriority(child.pid);   // tunel tambem com prioridade abaixo do normal
     } catch (err) {
       return this._fail(err.message);
@@ -188,6 +188,31 @@ export class Tunnel extends EventEmitter {
     this.url = null;
     if (this.child && this.child.exitCode === null) this.child.kill();
   }
+}
+
+// =============================================================================
+//  Endereco FIXO: tunel nomeado da Cloudflare (conta gratuita + dominio proprio).
+//  O endereco (ex.: tela.seudominio.com.br) e configurado no painel da Cloudflare
+//  apontando para a porta externa do TelaLink; aqui so roda o conector com o
+//  token. O token vai pela variavel de ambiente TUNNEL_TOKEN (nao aparece na
+//  lista de processos) e nunca e registrado em log.
+// =============================================================================
+const NAMED_READY_RE = /Registered tunnel connection|Connection [0-9a-f-]+ registered/i;
+export class NamedTunnel extends Tunnel {
+  constructor({ hostname, token, ...opts }) {
+    super(opts);
+    this.hostname = hostname;
+    this.token = token;
+  }
+  args() {
+    const a = [...this.binArgs, 'tunnel', '--no-autoupdate'];
+    if (this.configFile) a.push('--config', this.configFile);
+    if (this.protocol === 'http2') a.push('--protocol', 'http2');
+    a.push('run');
+    return a;
+  }
+  spawnEnv() { return { ...process.env, TUNNEL_TOKEN: this.token }; }
+  parseUrl(text) { return NAMED_READY_RE.test(String(text)) ? `https://${this.hostname}` : null; }
 }
 
 // =============================================================================
