@@ -16,6 +16,11 @@ const browser = await chromium.launch({
 const page = await browser.newPage();
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('[host console]', m.text()); });
 await page.goto('http://localhost:8080/');
+// O laboratorio mede o CAMINHO de rede de cada espectador (que entram juntos):
+// sem o limite de conexoes diretas (padrao 2), que mandaria o 3o para a
+// retransmissao compartilhada conforme a ordem de chegada.
+await page.evaluate(() => fetch('/api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefs: { maxDirect: 5 } }) }));
+await page.reload();
 await page.waitForSelector('#tunnelStatus.on', { timeout: 20_000 });
 await page.click('#btnScreen');
 await page.waitForSelector('#live:not(.hidden)');
