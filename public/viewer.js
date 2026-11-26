@@ -83,10 +83,13 @@ window.__telalink = {
   // Quadros recebidos (decodificados) ate agora, em qualquer navegador.
   async framesReceived() {
     if (transport === 'retransmissao') return receiver?.stats.framesDecoded || 0;
+    // Primeiro pelo proprio elemento de video (instantaneo); getStats so se nao der:
+    // ele depende de timer, e o Safari atrasa timers de janelas em segundo plano.
     let n = 0;
+    const v = $('remote');
+    try { n = (v.srcObject && v.getVideoPlaybackQuality?.().totalVideoFrames) || 0; } catch {}
+    if (n) return n;
     try { (await getStats(pc)).forEach((r) => { if (r.type === 'inbound-rtp' && r.kind === 'video') n = r.framesDecoded || 0; }); } catch {}
-    // Sem estatisticas (Safari): conta pelo proprio elemento de video.
-    if (!n) { const v = $('remote'); try { n = (v.srcObject && v.getVideoPlaybackQuality?.().totalVideoFrames) || 0; } catch {} }
     return n;
   },
 };

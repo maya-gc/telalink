@@ -40,7 +40,8 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Rodar o laboratorio (precisa de root para criar as redes)
-        run: sudo -E env "PATH=$PATH" bash lab/run.sh
+        # O sudo novo do Ubuntu ignora -E: as variaveis vao explicitas.
+        run: sudo env "PATH=$PATH" "PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH" bash lab/run.sh
 
       - name: Guardar evidencias (capturas de tela e logs)
         if: always()

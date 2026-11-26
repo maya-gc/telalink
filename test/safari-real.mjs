@@ -87,6 +87,11 @@ for (const policy of ['auto', 'relay']) {
       (policy === 'auto' ? ` | diagnostico da conexao direta: ${JSON.stringify(last.diag || {}).slice(0, 500)}` : ''));
   } catch (err) {
     failures++; console.log(`::error::Safari real (${label}): ${err.message}`);
+    // Para entender travas: estado lido de forma sincrona (sem promessas nem timers).
+    if (session) {
+      const st = await wd('POST', `/session/${session}/execute/sync`, { script: `const t = window.__telalink; return t ? { t: t.transport, estados: t.diag && t.diag.states, quadros: t.stats && t.stats.framesDecoded, visivel: document.visibilityState } : null;`, args: [] }, 15_000).catch((e) => e.message);
+      console.log(`::error::Safari real (${label}) estado: ${JSON.stringify(st).slice(0, 600)}`);
+    }
   } finally {
     if (session) await wd('DELETE', `/session/${session}`, null, 20_000).catch(() => startDriver());
     await ctx.close();
