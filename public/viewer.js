@@ -35,7 +35,13 @@ const diag = { local: [], remote: [], states: [], pairs: null };
 const JITTER_START_MS = 200, JITTER_MAX_MS = 600;
 let jitterTargetMs = JITTER_START_MS;
 const directReceivers = new Set();
+// Safari/WebKit (inclusive Chrome e Firefox no iPhone): ajustar esse buffer
+// travou a pagina inteira do Safari 27 no teste com o Safari de verdade. Fica
+// so nos motores Chromium e Gecko, e so com a conexao ja estabelecida.
+const UA = navigator.userAgent;
+const WEBKIT_ONLY = (/AppleWebKit/.test(UA) && !/(Chrome|Chromium|Edg|OPR|Firefox)\//.test(UA)) || /(CriOS|FxiOS|EdgiOS)\//.test(UA);
 function applyJitterTarget() {
+  if (WEBKIT_ONLY || !pc || pc.connectionState !== 'connected') return;
   for (const r of directReceivers) {
     try {
       if ('jitterBufferTarget' in r) r.jitterBufferTarget = jitterTargetMs;
@@ -375,7 +381,6 @@ function createPeer() {
     const v = $('remote');
     if (v.srcObject !== e.streams[0]) v.srcObject = e.streams[0];
     directReceivers.add(e.receiver);
-    applyJitterTarget();
     watchDirectFrames(v);
   };
   pc.onicecandidate = (e) => {
@@ -398,6 +403,7 @@ function createPeer() {
     diag.states.push(`pc:${pc?.connectionState}`);
     if (pc.connectionState === 'connected') {
       clearTimeout(p2pTimer);
+      applyJitterTarget();
       if (upgrading) {                     // deixa a retransmissao e fica so na conexao direta
         upgrading = false;
         receiver?.close(); receiver = null;

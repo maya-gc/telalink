@@ -8,7 +8,7 @@
   - Numa rede que engasga 700 ms a cada ~4 s: antes 3 congelamentos e 30 quadros "correndo" em 15 s; agora só o primeiro engasgo e nenhuma correria.
 - A banda da retransmissão não baixava com internet/túnel lento. Agora quem assiste informa o atraso medido.
 - Rajadas de quadros não fazem mais o decodificador descartar tudo até o próximo quadro-chave.
-- Conexão direta: buffer de recepção de 200 ms, que sobe sozinho até 600 ms se a imagem congelar.
+- Conexão direta: buffer de recepção de 200 ms, que sobe sozinho até 600 ms se a imagem congelar (Chrome, Edge, Brave, Firefox; no Safari, o do próprio navegador).
 - Conexão direta: conteúdo em movimento mantém os quadros por segundo e baixa a resolução quando falta banda.
 
 ### Novo

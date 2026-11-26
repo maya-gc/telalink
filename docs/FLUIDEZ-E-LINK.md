@@ -19,7 +19,7 @@ A internet não entrega os dados num ritmo perfeito. O túnel do link (Cloudflar
 | Retransmissão: som | Usa o mesmo atraso do vídeo (sincronia labial). Pequenas diferenças são corrigidas tocando 2% mais rápido ou mais devagar, sem cortes. |
 | Retransmissão: banda | Quem assiste mede o atraso de fila e avisa quem transmite a cada segundo, e a banda baixa **antes** de travar. Com 3 ou mais pessoas, vale a segunda pior conexão: uma só muito ruim não derruba a qualidade de todos. |
 | Retransmissão: decodificador | Recebe os quadros já no ritmo certo; só descarta se o PC realmente não der conta. |
-| Conexão direta | Buffer de recepção de 200 ms (antes, o mínimo de chamada). Se a imagem congelar, ele sobe sozinho até 600 ms. |
+| Conexão direta | Buffer de recepção de 200 ms (antes, o mínimo de chamada). Se a imagem congelar, ele sobe sozinho até 600 ms. No Safari/iPhone fica o buffer do próprio navegador (o ajuste travava a página do Safari 27). |
 | Conexão direta: banda curta | Conteúdo em **Vídeo / movimento** (filmes, jogos, vídeos) passa a manter os quadros por segundo e baixar a resolução por alguns segundos. Com uma resolução escolhida a mão, usa um meio-termo. **Texto e detalhes** continuam mantendo a nitidez. |
 
 O preço é um atraso um pouco maior: 0,2 a 1 s, conforme a rede. Para assistir a um filme ou jogo, isso não se nota.
