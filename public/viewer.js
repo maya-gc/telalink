@@ -35,9 +35,10 @@ const diag = { local: [], remote: [], states: [], pairs: null };
 const JITTER_START_MS = 200, JITTER_MAX_MS = 600;
 let jitterTargetMs = JITTER_START_MS;
 const directReceivers = new Set();
-// Safari/WebKit (inclusive Chrome e Firefox no iPhone): ajustar esse buffer
-// travou a pagina inteira do Safari 27 no teste com o Safari de verdade. Fica
-// so nos motores Chromium e Gecko, e so com a conexao ja estabelecida.
+// Safari/WebKit (inclusive Chrome e Firefox no iPhone): fica o buffer do proprio
+// navegador, porque o ajuste nao pode ser conferido no Safari de verdade (no CI a
+// conexao direta do Safari sempre cai para a retransmissao). Aplica so nos motores
+// Chromium e Gecko, e so com a conexao ja estabelecida.
 const UA = navigator.userAgent;
 const WEBKIT_ONLY = (/AppleWebKit/.test(UA) && !/(Chrome|Chromium|Edg|OPR|Firefox)\//.test(UA)) || /(CriOS|FxiOS|EdgiOS)\//.test(UA);
 function applyJitterTarget() {
